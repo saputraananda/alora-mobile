@@ -5,7 +5,7 @@ export const getSystemInfo = async (req, res) => {
   try {
     res.status(200).json({
       success: true,
-      message: "Selamat Datang di PT Waschen Alora Indonesia - Linen Monitoring System API",
+      message: "Selamat Datang di React & Express Monorepo Starter Pack API",
       version: "1.0.0",
       environment: process.env.NODE_ENV || "development",
       status: "Operational",
@@ -15,10 +15,10 @@ export const getSystemInfo = async (req, res) => {
         client: "MySQL 2"
       },
       metrics: {
-        rfidScannerStatus: "ONLINE",
-        laundryProcessingUnit: "ACTIVE",
-        activeTrackedLinens: 1248,
-        pendingDispatchCount: 45
+        cpuUsage: "12%",
+        memoryUsage: "64 MB",
+        uptime: "1.5 hours",
+        activeConnections: 4
       }
     });
   } catch (error) {

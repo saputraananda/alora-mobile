@@ -21,6 +21,9 @@ export default {
           950: '#082f49',
         },
       },
+      fontFamily: {
+        sans: ['"Plus Jakarta Sans"', 'Poppins', 'sans-serif'],
+      },
     },
   },
   plugins: [],

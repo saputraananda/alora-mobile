@@ -32,14 +32,14 @@ if (process.env.NODE_ENV === 'production') {
   });
 } else {
   app.get('/', (req, res) => {
-    res.send('Waschen Linen Monitoring API Server is running. Frontend dev server is active on port 5173.');
+    res.send('React & Express Starter Pack API Server is running. Frontend dev server is active on port 5173.');
   });
 }
 
 // Start Server
 app.listen(PORT, () => {
   console.log(`=========================================`);
-  console.log(`  Waschen Linen Monitoring System Server  `);
+  console.log(`  React & Express Monorepo Starter Server `);
   console.log(`  Status: Running                        `);
   console.log(`  Port:   http://localhost:${PORT}        `);
   console.log(`=========================================`);
