@@ -1,295 +1,349 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { 
-  Activity, 
-  Cpu, 
-  Database, 
-  RefreshCw, 
-  Wifi, 
-  WifiOff, 
-  CheckCircle2, 
-  Server,
-  Layers,
+  Info, 
+  CalendarCheck, 
+  FileText,
+  Wallet,
+  Sparkles,
   ChevronRight,
-  Sparkles
+  Clock,
+  CheckCircle2,
+  Bell,
+  Megaphone
 } from 'lucide-react';
+import { FaRunning } from 'react-icons/fa';
+import aloraMobileLogo from '../assets/images/aloramobile-white.png';
+import Modal from '../components/Modal.jsx';
+import { formatName } from '../utils/FormatName.js';
+import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 
 export default function Home() {
-  const [systemInfo, setSystemInfo] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  useDocumentTitle('Home');
+  const navigate = useNavigate();
 
+  const [userData, setUserData] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState('Layanan Alora Mobile');
+  const [modalContent, setModalContent] = useState('');
+  const [currentTime, setCurrentTime] = useState('');
+  const [currentDateStr, setCurrentDateStr] = useState('');
+
+  // Load authenticated user data
   useEffect(() => {
-    const fetchSystemInfo = async () => {
-      setLoading(true);
-      setError(null);
+    const storedUser = localStorage.getItem('alora_user') || sessionStorage.getItem('alora_user');
+    if (storedUser) {
       try {
-        const response = await axios.get('/api/info');
-        if (response.data && response.data.success) {
-          setSystemInfo(response.data);
-        } else {
-          throw new Error(response.data?.message || 'Gagal memuat status sistem');
-        }
+        setUserData(JSON.parse(storedUser));
       } catch (err) {
-        console.error('API Fetch error, using fallback client data:', err);
-        setError('Koneksi ke backend Express belum aktif atau terjadi kesalahan. Silakan pastikan backend berjalan di port 5000.');
-        // Fallback mock data for demo visual check
-        setSystemInfo({
-          success: true,
-          message: "Selamat Datang di React & Express Monorepo Starter Pack (Demo)",
-          version: "1.0.0 (Demo Mode)",
-          environment: "client-fallback",
-          status: "Demo Mode Active",
-          timestamp: new Date().toISOString(),
-          database: {
-            status: "Offline / Unreachable",
-            client: "MySQL 2"
-          },
-          metrics: {
-            cpuUsage: "12% (Simulated)",
-            memoryUsage: "64 MB (Simulated)",
-            uptime: "1.5 hours (Simulated)",
-            activeConnections: 4
-          }
-        });
-      } finally {
-        setLoading(false);
+        console.error('Error parsing stored user:', err);
       }
+    }
+  }, []);
+
+  // Update clock & date dynamically
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      setCurrentTime(`${hours}.${minutes}.${seconds}`);
+
+      const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+      const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+      const dayName = days[now.getDay()];
+      const dateNum = now.getDate();
+      const monthName = months[now.getMonth()];
+      const year = now.getFullYear();
+      setCurrentDateStr(`${dayName}, ${dateNum} ${monthName} ${year}`);
     };
 
-    fetchSystemInfo();
-  }, [refreshKey]);
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const handleRefresh = () => {
-    setRefreshKey(prev => prev + 1);
+  // Greeting based on current time
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour >= 4 && hour < 11) return 'Selamat Pagi 🌤️';
+    if (hour >= 11 && hour < 15) return 'Selamat Siang ☀️';
+    if (hour >= 15 && hour < 18) return 'Selamat Sore 🌅';
+    return 'Selamat Malam ☁️';
   };
 
-  return (
-    <div className="relative min-h-screen bg-slate-50 text-slate-900 overflow-hidden flex flex-col justify-between">
-      {/* Background Decorative Glow Elements */}
-      <div className="glow-spot bg-blue-400/25 top-[-100px] left-[-100px]" />
-      <div className="glow-spot bg-sky-300/20 bottom-[-150px] right-[-100px]" />
-      <div className="glow-spot bg-indigo-300/25 top-[30%] right-[10%]" />
+  const openMenuModal = (title, desc) => {
+    setModalTitle(title);
+    setModalContent(desc);
+    setIsModalOpen(true);
+  };
 
-      {/* Navigation / Header */}
-      <header className="relative z-10 border-b border-slate-200/80 bg-white/70 backdrop-blur-md px-6 py-4">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-gradient-to-tr from-sky-500 to-indigo-600 rounded-xl shadow-lg shadow-sky-500/15">
-              <Layers className="h-6 w-6 text-white animate-pulse" />
+  const handleMenuClick = (item) => {
+    if (item.id === 'absensi') {
+      navigate('/riwayat');
+    } else {
+      openMenuModal(item.title, item.modalDesc);
+    }
+  };
+
+  const rawUserName = userData?.name || "";
+  const formattedUserName = rawUserName ? formatName(rawUserName) : "Pengguna Alora";
+  const employeeCode = userData?.employee_code || "";
+  const jobLevel = userData?.job_level || "Karyawan";
+
+  const menuItems = [
+    {
+      id: 'absensi',
+      title: 'Absensi',
+      subtitle: 'Clock In & Out GPS',
+      icon: <CalendarCheck className="w-5 h-5 text-emerald-600" />,
+      badgeColor: 'bg-emerald-50 border-emerald-200/80',
+      modalDesc: 'Fitur Presensi GPS & Riwayat Kehadiran Pegawai Alora Mobile.'
+    },
+    {
+      id: 'alorabugar',
+      title: 'Alora Bugar',
+      subtitle: 'Kesehatan & Kebugaran',
+      icon: <FaRunning className="w-5 h-5 text-rose-500" />,
+      badgeColor: 'bg-rose-50 border-rose-200/80',
+      modalDesc: 'Layanan Pemantauan Kesehatan & Kebugaran Kerja Pegawai.'
+    },
+    {
+      id: 'perizinan',
+      title: 'Perizinan',
+      subtitle: 'Cuti, Sakit & Izin',
+      icon: <FileText className="w-5 h-5 text-amber-600" />,
+      badgeColor: 'bg-amber-50 border-amber-200/80',
+      modalDesc: 'Pengajuan Cuti Tahunan, Surat Sakit, dan Izin Meninggalkan Pekerjaan.'
+    },
+    {
+      id: 'slipgaji',
+      title: 'Slip Gaji',
+      subtitle: 'Riwayat Gaji & Insentif',
+      icon: <Wallet className="w-5 h-5 text-sky-600" />,
+      badgeColor: 'bg-sky-50 border-sky-200/80',
+      modalDesc: 'Unduh dan Lihat Riwayat Rincian Slip Gaji Bulanan Pegawai.'
+    }
+  ];
+
+  return (
+    <div className="flex flex-col w-full min-h-screen bg-slate-50 pb-28">
+      {/* HEADER HERO */}
+      <header className="relative pt-5 pb-6 px-6 bg-[#050B14] rounded-b-[36px] overflow-hidden shadow-xl text-white">
+        {/* BACKGROUND LAYER 1: Deep Navy Radial Gradient Backdrop */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#0E203B] via-[#071324] to-[#040810]" />
+
+        {/* BACKGROUND LAYER 2: Subtle Luxury Grain / Noise Overlay */}
+        <div
+          className="absolute inset-0 opacity-[0.08] pointer-events-none z-10 mix-blend-overlay"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`
+          }}
+        />
+
+        {/* BACKGROUND LAYER 3: Soft Ambient Glow */}
+        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/15 rounded-full blur-3xl pointer-events-none z-0" />
+
+        {/* HEADER TOP ROW: Avatar, User Info & Action Info Button */}
+        <div className="relative z-20 flex items-center justify-between gap-3 mb-1">
+          <div 
+            onClick={() => navigate('/profil')}
+            className="flex items-center gap-3 cursor-pointer group"
+          >
+            {/* Squircle Avatar */}
+            <div className="w-[50px] h-[50px] rounded-full border border-white/20 bg-white/10 flex items-center justify-center text-white font-extrabold text-base flex-shrink-0 shadow-md backdrop-blur-md group-hover:scale-105 transition">
+              {formattedUserName.split(' ').slice(0, 2).map(n => n[0]).join('') || 'AP'}
             </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-1.5 font-sans">
-                REACT + EXPRESS
-                <span className="text-xs px-2 py-0.5 rounded-full bg-sky-50 text-sky-600 border border-sky-200/50 font-medium">
-                  Starter Pack
-                </span>
-              </h1>
-              <p className="text-[10px] text-slate-500 tracking-wider uppercase font-semibold">Monorepo Web App Template</p>
+
+            {/* User Name & Subtitle */}
+            <div className="flex flex-col">
+              <h2 className="text-[16px] font-bold text-white tracking-tight leading-tight line-clamp-1 group-hover:text-blue-200 transition">
+                {formattedUserName}
+              </h2>
+              <p className="text-xs text-slate-300 font-normal mt-0.5">
+                {jobLevel}{employeeCode ? ` · ${employeeCode}` : ''}
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={handleRefresh}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition-all duration-200"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-              Segarkan
-            </button>
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200/60 text-xs font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-              v1.0.0
-            </div>
+          {/* Action Info Circle Button */}
+          <button
+            onClick={() => openMenuModal('Informasi Aplikasi', 'Aplikasi Alora Mobile terhubung langsung dengan database mainPool.')}
+            className="w-10 h-10 rounded-full border border-white/20 bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition active:scale-95 flex-shrink-0 backdrop-blur-md"
+            aria-label="Info Aplikasi"
+          >
+            <Info className="w-5 h-5 text-white" />
+          </button>
+        </div>
+
+        {/* HEADER BOTTOM ROW: Greeting, Digital Clock, Date & Alora Mobile Logo */}
+        <div className="relative z-20 flex items-end justify-between pt-3">
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold text-slate-200">
+              {getGreeting()}
+            </span>
+            <span className="text-3xl font-extrabold font-sans tracking-tight text-white mt-0.5 leading-none">
+              {currentTime || '23.26.59'}
+            </span>
+            <span className="text-xs text-slate-300 font-medium mt-1.5">
+              {currentDateStr || 'Minggu, 16 Agustus 2026'}
+            </span>
+          </div>
+
+          {/* Alora Mobile Brand Logo Image & Typography */}
+          <div className="flex flex-col items-center justify-end pb-0 pt-2 flex-shrink-0">
+            <img
+              src={aloraMobileLogo}
+              alt="Alora Mobile Logo"
+              className="w-16 sm:w-20 h-auto object-contain drop-shadow-md"
+            />
+            <span className="font-['Outfit'] font-extrabold text-[11px] sm:text-[12px] tracking-wider text-white drop-shadow-sm -mt-2.5 sm:-mt-3">
+              Alora Mobile
+            </span>
           </div>
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="relative z-10 max-w-7xl w-full mx-auto px-6 py-12 flex-grow flex flex-col justify-center">
-        {/* Welcome Section */}
-        <div className="text-center max-w-3xl mx-auto mb-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-sky-500/5 to-indigo-500/5 border border-sky-200 text-sky-600 text-xs font-medium mb-6">
-            <Sparkles className="h-3.5 w-3.5 text-sky-500" />
-            <span>Monorepo Boilerplate Starter Active</span>
+      {/* MAIN CONTENT AREA */}
+      <main className="px-5 pt-6 flex flex-col gap-6">
+        {/* SECTION 1: 4 MAIN MENU CARDS GRID */}
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between px-1">
+            <h3 className="text-xs font-black text-navy-950 tracking-wider uppercase">
+              MENU UTAMA
+            </h3>
           </div>
-          <h2 className="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-900 mb-4 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 bg-clip-text text-transparent">
-            React & Express Starter Pack
-          </h2>
-          <p className="text-slate-600 text-base md:text-lg max-w-2xl mx-auto leading-relaxed">
-            Starter template siap pakai untuk aplikasi web full-stack modern. Mengintegrasikan frontend React (Vite) dengan backend Express JS dalam satu monorepo yang terkelola secara efisien.
-          </p>
-          <div className="inline-flex items-center gap-2 mt-6 px-4 py-2 rounded-xl bg-white shadow-sm border border-slate-200 text-slate-600 text-xs sm:text-sm font-medium">
-            <span className="flex h-2 w-2 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-600"></span>
-            </span>
-            <span>Dibuat oleh <strong className="text-slate-800 font-semibold">Ananda Prathama Saputra</strong> &bull; Institut Pertanian Bogor</span>
+
+          {/* 4 COLUMNS SINGLE ROW GRID CONTAINER */}
+          <div className="bg-white rounded-[26px] p-4 shadow-[0_4px_24px_rgb(0,0,0,0.04)] border border-slate-200/80 grid grid-cols-4 gap-x-1.5">
+            {menuItems.map((item) => (
+              <div
+                key={item.id}
+                onClick={() => handleMenuClick(item)}
+                className="flex flex-col items-center cursor-pointer group"
+              >
+                {/* Icon Box */}
+                <div className={`w-12 h-12 rounded-[20px] ${item.badgeColor} border flex items-center justify-center shadow-sm group-hover:scale-105 active:scale-95 transition flex-shrink-0`}>
+                  {item.icon}
+                </div>
+
+                {/* Title */}
+                <span className="text-[11px] sm:text-[12px] font-bold text-navy-950 text-center leading-tight mt-2 px-0.5">
+                  {item.title}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Backend Connectivity Check Banner */}
-        {error && (
-          <div className="max-w-4xl mx-auto w-full mb-8 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 text-sm shadow-sm">
-            <div className="flex items-start gap-3">
-              <WifiOff className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <span className="font-semibold block">Menunggu Koneksi Backend...</span>
-                <span className="text-xs text-amber-700/95">{error}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <code className="text-xs bg-slate-100 border border-slate-200 px-2.5 py-1 rounded text-slate-800 font-mono">
-                npm run dev
-              </code>
-              <span className="text-xs text-slate-500">untuk menjalankan API & Frontend secara paralel</span>
-            </div>
+        {/* SECTION 2: LIST CARD INFORMASI & REKAP AKTIVITAS */}
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between px-1">
+            <h3 className="text-xs font-black text-navy-950 tracking-wider uppercase">
+              INFORMASI & AKTIVITAS
+            </h3>
+            <span className="text-[10px] font-bold text-slate-400">
+              3 Info Terbaru
+            </span>
           </div>
-        )}
 
-        {/* Dynamic Mock Status / Real Status Dashboard Display */}
-        {loading ? (
-          <div className="flex justify-center items-center py-20">
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-12 h-12 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-slate-500 text-sm">Menghubungkan ke API Server...</p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto w-full">
-            {/* API Status Box */}
-            <div className="md:col-span-3 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4 mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-sky-50 text-sky-600 rounded-lg">
-                    <Server className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-800">Status Server API</h3>
-                    <p className="text-xs text-slate-400">Merespon dari server.js</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                    systemInfo?.environment === 'client-fallback' 
-                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                    : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                  }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${
-                      systemInfo?.environment === 'client-fallback' ? 'bg-amber-500' : 'bg-emerald-500'
-                    }`}></span>
-                    {systemInfo?.status || 'Unknown'}
+          <div className="flex flex-col gap-3">
+            {/* INFO CARD 1: ABSENSI */}
+            <div 
+              onClick={() => navigate('/riwayat')}
+              className="bg-white rounded-[22px] p-4 border border-slate-200/80 shadow-sm flex items-start gap-3.5 cursor-pointer hover:border-emerald-300 transition group"
+            >
+              <div className="w-10 h-10 rounded-[14px] bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <CalendarCheck className="w-5 h-5" />
+              </div>
+              <div className="flex flex-col flex-grow">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-extrabold text-navy-950">
+                    Presensi Masuk Berhasil
+                  </h4>
+                  <span className="text-[10px] text-slate-400 font-semibold">
+                    08:00 WIB
                   </span>
                 </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                <div>
-                  <p className="text-slate-400 mb-1">Message from Server:</p>
-                  <p className="text-slate-700 font-medium">{systemInfo?.message}</p>
-                </div>
-                <div>
-                  <p className="text-slate-400 mb-1">Database Connection:</p>
-                  <p className="text-slate-700 font-medium flex items-center gap-1.5">
-                    <Database className="h-3.5 w-3.5 text-sky-500" />
-                    {systemInfo?.database?.status} ({systemInfo?.database?.client})
-                  </p>
+                <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
+                  Kantor Pusat / Outlet Utama Alora
+                </p>
+                <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 mt-2">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Tercatat via GPS</span>
                 </div>
               </div>
             </div>
 
-            {/* Metrics cards */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
-                  <Cpu className="h-5 w-5" />
-                </div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">System Load</span>
+            {/* INFO CARD 2: ALORA BUGAR */}
+            <div 
+              onClick={() => openMenuModal('Detail Alora Bugar', 'Kondisi kesehatan harian Anda dinyatakan prima dan siap beraktivitas.')}
+              className="bg-white rounded-[22px] p-4 border border-slate-200/80 shadow-sm flex items-start gap-3.5 cursor-pointer hover:border-rose-300 transition group"
+            >
+              <div className="w-10 h-10 rounded-[14px] bg-rose-50 text-rose-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <FaRunning className="w-5 h-5 text-rose-600" />
               </div>
-              <div>
-                <span className="text-xs text-slate-500 block mb-1">CPU Usage</span>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-bold text-slate-900 tracking-tight">
-                    {systemInfo?.metrics?.cpuUsage}
+              <div className="flex flex-col flex-grow">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-extrabold text-navy-950">
+                    Kondisi Kesehatan Prima
+                  </h4>
+                  <span className="text-[10px] text-slate-400 font-semibold">
+                    07:30 WIB
                   </span>
                 </div>
+                <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
+                  Skor harian: <strong className="text-navy-950 font-mono">95 / 100</strong> &bull; Siap bertugas
+                </p>
+                <div className="flex items-center gap-1 text-[10px] font-bold text-rose-600 mt-2">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Status Kebugaran Baik</span>
+                </div>
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-2.5 bg-sky-50 text-sky-600 rounded-xl">
-                  <Database className="h-5 w-5" />
-                </div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Memory</span>
+            {/* INFO CARD 3: PENGUMUMAN INFORMASI */}
+            <div 
+              onClick={() => openMenuModal('Detail Informasi', 'Pelaksanaan briefing bulanan koordinasi tim Alora Mobile.')}
+              className="bg-white rounded-[22px] p-4 border border-slate-200/80 shadow-sm flex items-start gap-3.5 cursor-pointer hover:border-purple-300 transition group"
+            >
+              <div className="w-10 h-10 rounded-[14px] bg-purple-50 text-purple-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Megaphone className="w-5 h-5" />
               </div>
-              <div>
-                <span className="text-xs text-slate-500 block mb-1">Memory Usage</span>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-bold text-slate-900 tracking-tight">
-                    {systemInfo?.metrics?.memoryUsage}
+              <div className="flex flex-col flex-grow">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-extrabold text-navy-950">
+                    Briefing Bulanan Team Alora
+                  </h4>
+                  <span className="text-[10px] text-slate-400 font-semibold">
+                    Kemarin
                   </span>
                 </div>
-              </div>
-            </div>
-
-            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col justify-between">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
-                  <Activity className="h-5 w-5" />
-                </div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Runtime</span>
-              </div>
-              <div>
-                <span className="text-xs text-slate-500 block mb-1">Server Uptime</span>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-bold text-slate-900 tracking-tight">
-                    {systemInfo?.metrics?.uptime}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Starter Structure Guide Box */}
-            <div className="md:col-span-3 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-              <h3 className="text-base font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                <Layers className="h-5 w-5 text-indigo-500" />
-                Struktur Komponen yang Telah Dibuat
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-slate-50/50 border border-slate-100 p-4 rounded-xl">
-                  <span className="text-xs font-bold text-sky-600 block mb-1">1. Routing (Express)</span>
-                  <code className="text-[10px] text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded block mb-2 font-mono">api/routes/info.routes.js</code>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Mengarahkan request <code className="text-sky-600">GET /api/info</code> ke fungsi controller.
-                  </p>
-                </div>
-                <div className="bg-slate-50/50 border border-slate-100 p-4 rounded-xl">
-                  <span className="text-xs font-bold text-indigo-600 block mb-1">2. Controller (Express)</span>
-                  <code className="text-[10px] text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded block mb-2 font-mono">api/controllers/info.controller.js</code>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Fungsi <code className="text-indigo-600">getSystemInfo</code> memproses data sistem dan mengembalikan response JSON.
-                  </p>
-                </div>
-                <div className="bg-slate-50/50 border border-slate-100 p-4 rounded-xl">
-                  <span className="text-xs font-bold text-pink-600 block mb-1">3. Frontend Page (React)</span>
-                  <code className="text-[10px] text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded block mb-2 font-mono">src/pages/Home.jsx</code>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Halaman Selamat Datang ini yang terintegrasi Axios untuk mengambil data API.
-                  </p>
+                <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
+                  Rapat koordinasi dan evaluasi kerja bulanan hari Jumat pukul 14:00 WIB.
+                </p>
+                <div className="flex items-center gap-1 text-[10px] font-bold text-purple-600 mt-2">
+                  <Bell className="w-3.5 h-3.5" />
+                  <span>Pengumuman Manajemen</span>
                 </div>
               </div>
             </div>
           </div>
-        )}
+        </div>
       </main>
 
-      {/* Footer */}
-      <footer className="relative z-10 py-6 border-t border-slate-200/60 bg-white/70 backdrop-blur-md text-center">
-        <p className="text-xs text-slate-500">
-          &copy; {new Date().getFullYear()} React & Express Starter Pack. All rights reserved.
+      {/* INTERACTIVE MODAL */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={modalTitle}
+        icon={<Info className="w-5 h-5 text-blue-600" />}
+      >
+        <p className="text-xs text-slate-600 leading-relaxed py-1">
+          {modalContent}
         </p>
-      </footer>
+      </Modal>
     </div>
   );
 }
