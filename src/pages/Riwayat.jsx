@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Calendar, 
-  Clock, 
-  ChevronLeft, 
-  ChevronRight, 
+import {
+  Calendar,
+  Clock,
+  ChevronLeft,
+  ChevronRight,
   ChevronDown,
-  User, 
-  Sparkles, 
-  History as HistoryIcon, 
-  CheckCircle2, 
-  AlertCircle, 
+  User,
+  Sparkles,
+  History as HistoryIcon,
+  CheckCircle2,
+  AlertCircle,
   CalendarDays,
   X,
   Camera,
@@ -23,7 +23,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 
 const DAYS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
 const MONTHS_ID = [
-  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
 ];
 
@@ -155,21 +155,21 @@ export default function Riwayat() {
   for (let d = 1; d <= daysInMonth; d++) calCells.push(d);
 
   const prevMonth = () => {
-    if (calMonth === 0) { 
-      setCalMonth(11); 
-      setCalYear(y => y - 1); 
-    } else { 
-      setCalMonth(m => m - 1); 
+    if (calMonth === 0) {
+      setCalMonth(11);
+      setCalYear(y => y - 1);
+    } else {
+      setCalMonth(m => m - 1);
     }
     setSelectedDate(null);
   };
 
   const nextMonth = () => {
-    if (calMonth === 11) { 
-      setCalMonth(0); 
-      setCalYear(y => y + 1); 
-    } else { 
-      setCalMonth(m => m + 1); 
+    if (calMonth === 11) {
+      setCalMonth(0);
+      setCalYear(y => y + 1);
+    } else {
+      setCalMonth(m => m + 1);
     }
     setSelectedDate(null);
   };
@@ -277,8 +277,8 @@ export default function Riwayat() {
 
           {/* Month & Year Navigation Header with Google Calendar Picker Trigger */}
           <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5 border-b border-slate-100">
-            <button 
-              onClick={prevMonth} 
+            <button
+              onClick={prevMonth}
               className="w-8.5 h-8.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-navy-950 active:scale-95 transition-all flex items-center justify-center flex-shrink-0"
               aria-label="Bulan Sebelumnya"
             >
@@ -297,8 +297,8 @@ export default function Riwayat() {
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 transition-colors" />
             </button>
 
-            <button 
-              onClick={nextMonth} 
+            <button
+              onClick={nextMonth}
               className="w-8.5 h-8.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-navy-950 active:scale-95 transition-all flex items-center justify-center flex-shrink-0"
               aria-label="Bulan Selanjutnya"
             >
@@ -337,20 +337,18 @@ export default function Riwayat() {
                   key={key}
                   disabled={future}
                   onClick={() => setSelectedDate(isSelected ? null : d)}
-                  className={`flex flex-col items-center justify-center rounded-[14px] py-2 gap-0.5 transition-all duration-150 active:scale-90 ${
-                    isSelected
+                  className={`flex flex-col items-center justify-center rounded-[14px] py-2 gap-0.5 transition-all duration-150 active:scale-90 ${isSelected
                       ? 'bg-navy-950 text-white scale-[1.08] shadow-md shadow-navy-950/20'
                       : today
                         ? 'bg-blue-50 text-navy-950 border border-blue-200 font-black'
                         : future
                           ? 'opacity-30 cursor-not-allowed'
                           : 'hover:bg-slate-50 text-slate-700'
-                  }`}
+                    }`}
                 >
                   {/* Tanggal Minggu Dimerahkan! */}
-                  <span className={`text-[12.5px] font-extrabold leading-none ${
-                    isSelected ? 'text-white' : today ? 'text-navy-950' : isSunday ? 'text-rose-600 font-black' : 'text-slate-800'
-                  }`}>
+                  <span className={`text-[12.5px] font-extrabold leading-none ${isSelected ? 'text-white' : today ? 'text-navy-950' : isSunday ? 'text-rose-600 font-black' : 'text-slate-800'
+                    }`}>
                     {d}
                   </span>
                   {dotColor && (
@@ -418,7 +416,7 @@ export default function Riwayat() {
                       <div className="grid grid-cols-2 gap-3">
                         {/* Foto Masuk Card */}
                         {selectedRecord.fotoMasuk ? (
-                          <div 
+                          <div
                             onClick={() => setPreviewPhoto({
                               url: selectedRecord.fotoMasuk,
                               title: 'Foto Presensi Masuk',
@@ -428,9 +426,9 @@ export default function Riwayat() {
                             className="flex flex-col gap-1.5 cursor-pointer group"
                           >
                             <div className="relative aspect-[4/3] rounded-[20px] overflow-hidden bg-slate-100 border border-slate-200/80 shadow-sm relative transition duration-200 group-hover:border-emerald-300 group-hover:shadow-md">
-                              <img 
-                                src={selectedRecord.fotoMasuk} 
-                                alt="Foto Masuk" 
+                              <img
+                                src={selectedRecord.fotoMasuk}
+                                alt="Foto Masuk"
                                 className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                               />
                               <div className="absolute inset-0 bg-navy-950/20 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white backdrop-blur-[2px]">
@@ -460,7 +458,7 @@ export default function Riwayat() {
 
                         {/* Foto Keluar Card */}
                         {selectedRecord.fotoKeluar ? (
-                          <div 
+                          <div
                             onClick={() => setPreviewPhoto({
                               url: selectedRecord.fotoKeluar,
                               title: 'Foto Presensi Keluar',
@@ -470,9 +468,9 @@ export default function Riwayat() {
                             className="flex flex-col gap-1.5 cursor-pointer group"
                           >
                             <div className="relative aspect-[4/3] rounded-[20px] overflow-hidden bg-slate-100 border border-slate-200/80 shadow-sm relative transition duration-200 group-hover:border-blue-300 group-hover:shadow-md">
-                              <img 
-                                src={selectedRecord.fotoKeluar} 
-                                alt="Foto Keluar" 
+                              <img
+                                src={selectedRecord.fotoKeluar}
+                                alt="Foto Keluar"
                                 className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                               />
                               <div className="absolute inset-0 bg-navy-950/20 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white backdrop-blur-[2px]">
@@ -547,13 +545,12 @@ export default function Riwayat() {
               return (
                 <div key={key} className="bg-white rounded-[20px] border border-slate-100 p-3.5 flex items-center gap-3.5 shadow-[0_4px_16px_rgba(0,0,0,0.03)] hover:shadow-md transition-all">
                   {/* Date badge */}
-                  <div className={`w-10.5 h-10.5 rounded-2xl flex flex-col items-center justify-center flex-shrink-0 ${
-                    rec.label === 'Hadir' 
-                      ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' 
-                      : rec.label === 'Izin' 
-                        ? 'bg-amber-50 text-amber-600 border border-amber-100' 
+                  <div className={`w-10.5 h-10.5 rounded-2xl flex flex-col items-center justify-center flex-shrink-0 ${rec.label === 'Hadir'
+                      ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                      : rec.label === 'Izin'
+                        ? 'bg-amber-50 text-amber-600 border border-amber-100'
                         : 'bg-rose-50 text-rose-600 border border-rose-100'
-                  }`}>
+                    }`}>
                     <span className={`text-[14.5px] font-black leading-none ${isSunday ? 'text-rose-600' : ''}`}>{d}</span>
                     <span className={`text-[8.5px] font-extrabold uppercase mt-0.5 opacity-80 ${isSunday ? 'text-rose-600' : ''}`}>{dayName}</span>
                   </div>
@@ -562,19 +559,18 @@ export default function Riwayat() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span className={`w-2 h-2 rounded-full ${rec.dot}`} />
-                      <span className={`text-[13px] font-black ${
-                        rec.label === 'Hadir' 
-                          ? 'text-emerald-700' 
-                          : rec.label === 'Izin' 
-                            ? 'text-amber-700' 
+                      <span className={`text-[13px] font-black ${rec.label === 'Hadir'
+                          ? 'text-emerald-700'
+                          : rec.label === 'Izin'
+                            ? 'text-amber-700'
                             : 'text-rose-600'
-                      }`}>
+                        }`}>
                         {rec.label}
                       </span>
                     </div>
                     <span className="text-[11px] text-slate-400 font-bold block mt-0.5">
-                      {rec.label === 'Hadir' 
-                        ? (rec.in !== '-' ? `${rec.in} – ${rec.out !== '-' ? rec.out : 'Belum Keluar'}` : 'Belum Masuk') 
+                      {rec.label === 'Hadir'
+                        ? (rec.in !== '-' ? `${rec.in} – ${rec.out !== '-' ? rec.out : 'Belum Keluar'}` : 'Belum Masuk')
                         : 'Tidak Hadir'}
                     </span>
                   </div>
@@ -596,11 +592,11 @@ export default function Riwayat() {
           FULL PHOTO PREVIEW MODAL
           ========================================== */}
       {previewPhoto && (
-        <div 
+        <div
           onClick={() => setPreviewPhoto(null)}
           className="fixed inset-0 z-[200] flex items-center justify-center bg-navy-950/80 backdrop-blur-sm p-4 animate-fade-in cursor-pointer"
         >
-          <div 
+          <div
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-[340px] bg-white rounded-[28px] shadow-2xl p-5 border border-slate-100 flex flex-col gap-4 relative cursor-default"
           >
@@ -625,9 +621,9 @@ export default function Riwayat() {
 
             {/* Photo Container */}
             <div className="w-full aspect-[4/3] rounded-[20px] overflow-hidden bg-slate-100 border border-slate-200 shadow-inner relative">
-              <img 
-                src={previewPhoto.url} 
-                alt={previewPhoto.title} 
+              <img
+                src={previewPhoto.url}
+                alt={previewPhoto.title}
                 className="w-full h-full object-cover"
               />
               <div className="absolute bottom-2 left-2 px-3 py-1 rounded-xl bg-navy-950/80 backdrop-blur-md text-[10px] font-bold text-white flex items-center gap-1.5 shadow-md">
@@ -654,15 +650,15 @@ export default function Riwayat() {
           GOOGLE CALENDAR STYLE MONTH & YEAR PICKER MODAL
           ========================================== */}
       {showPickerModal && (
-        <div 
+        <div
           onClick={() => setShowPickerModal(false)}
           className="fixed inset-0 z-[200] flex items-center justify-center bg-navy-950/60 backdrop-blur-sm p-4 animate-fade-in cursor-pointer"
         >
-          <div 
+          <div
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-[340px] bg-white rounded-[28px] shadow-2xl p-5 border border-slate-100 flex flex-col gap-4 relative cursor-default"
           >
-            
+
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
@@ -686,11 +682,10 @@ export default function Riwayat() {
                   <button
                     key={y}
                     onClick={() => setTempPickerYear(y)}
-                    className={`py-2 rounded-xl text-[12.5px] font-black transition-all ${
-                      tempPickerYear === y
+                    className={`py-2 rounded-xl text-[12.5px] font-black transition-all ${tempPickerYear === y
                         ? 'bg-navy-950 text-white shadow-md shadow-navy-950/20'
                         : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200/80'
-                    }`}
+                      }`}
                   >
                     {y}
                   </button>
@@ -706,11 +701,10 @@ export default function Riwayat() {
                   <button
                     key={m}
                     onClick={() => setTempPickerMonth(idx)}
-                    className={`py-2.5 px-2 rounded-xl text-[12px] font-black transition-all text-center ${
-                      tempPickerMonth === idx
+                    className={`py-2.5 px-2 rounded-xl text-[12px] font-black transition-all text-center ${tempPickerMonth === idx
                         ? 'bg-navy-950 text-white shadow-md shadow-navy-950/20'
                         : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200/80'
-                    }`}
+                      }`}
                   >
                     {m}
                   </button>

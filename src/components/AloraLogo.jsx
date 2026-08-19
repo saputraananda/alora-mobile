@@ -1,8 +1,8 @@
 import React from 'react';
-import aloraMobileWhiteLogo from '../assets/images/aloramobile-white.png';
+import aloraMobileWhiteLogo from '../assets/images/aloramobile-white.webp';
 
 /**
- * Alora Logo Component using aloramobile-white.png
+ * Alora Logo Component using aloramobile-white.webp
  * 
  * @param {Object} props
  * @param {'sm' | 'md' | 'lg'} [props.size='md']

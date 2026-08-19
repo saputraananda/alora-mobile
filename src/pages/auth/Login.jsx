@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { User, Lock, Eye, EyeOff, LogIn, AlertCircle } from 'lucide-react';
-import aloraMobileLogo from '../../assets/images/aloramobile-white.png';
+import aloraMobileLogo from '../../assets/images/aloramobile-white.webp';
 import Modal from '../../components/Modal.jsx';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle.js';
 

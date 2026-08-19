@@ -4,11 +4,11 @@ import { X } from 'lucide-react';
 /**
  * Mobile-Scoped Clean Popup Modal Component
  */
-export default function Modal({ 
-  isOpen, 
-  onClose, 
-  title, 
-  children, 
+export default function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
   icon,
   hideActionButton = false,
   actionButtonText = 'Mengerti'
@@ -28,11 +28,11 @@ export default function Modal({
   if (!isOpen) return null;
 
   return (
-    <div 
+    <div
       onClick={onClose}
       className="fixed inset-0 z-[200] bg-navy-950/60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in cursor-pointer"
     >
-      <div 
+      <div
         onClick={(e) => e.stopPropagation()}
         className="bg-white rounded-[26px] p-5 max-w-[340px] w-full shadow-2xl relative border border-slate-100 flex flex-col cursor-default"
       >

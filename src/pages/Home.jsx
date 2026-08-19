@@ -13,7 +13,7 @@ import {
   Megaphone
 } from 'lucide-react';
 import { FaRunning } from 'react-icons/fa';
-import aloraMobileLogo from '../assets/images/aloramobile-white.png';
+import aloraMobileLogo from '../assets/images/aloramobile-white.webp';
 import Modal from '../components/Modal.jsx';
 import { formatName } from '../utils/FormatName.js';
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js';

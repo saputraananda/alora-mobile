@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import aloraMobileWhiteLogo from '../assets/images/aloramobile-white.png';
+import aloraMobileWhiteLogo from '../assets/images/aloramobile-white.webp';
 
 /**
  * Ultra-Minimal Elegant Splash Screen Component
