@@ -10,8 +10,8 @@ export default function BottomNavbar() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Hide bottom navbar on login page
-  if (location.pathname === '/login') {
+  // Hide bottom navbar on login page and tracking
+  if (location.pathname === '/login' || location.pathname === '/bugar/tracking') {
     return null;
   }
 

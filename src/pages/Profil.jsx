@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { startRegistration } from '@simplewebauthn/browser';
 
 import ConfirmModal from '../components/ConfirmModal.jsx';
 import Modal from '../components/Modal.jsx';
+import FaceScanModal from '../components/auth/FaceScanModal.jsx';
 import { formatName } from '../utils/FormatName.js';
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 import { 
@@ -27,12 +27,19 @@ import {
   Info
 } from 'lucide-react';
 
+function getAuthToken() {
+  return localStorage.getItem('alora_auth_token')
+    || localStorage.getItem('alora_token')
+    || localStorage.getItem('token');
+}
+
 export default function Profile() {
   useDocumentTitle('Profil');
   const navigate = useNavigate();
 
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [currentUser, setCurrentUser] = useState({
+    userId: null,
     employee_id: 1,
     fullName: '',
     employee_code: '',
@@ -50,12 +57,13 @@ export default function Profile() {
 
   // Biometrics states
   const [biometricStatus, setBiometricStatus] = useState({
-    isRegistered: false,
-    count: 0,
+    isEnrolled: false,
+    sampleCount: 0,
     loading: true,
-    biometrics: []
+    enrolledAt: null,
   });
   const [biometricLoading, setBiometricLoading] = useState(false);
+  const [faceScanOpen, setFaceScanOpen] = useState(false);
   const [biometricAlertModal, setBiometricAlertModal] = useState({
     isOpen: false,
     title: '',
@@ -66,20 +74,20 @@ export default function Profile() {
   // Fetch biometric status from server
   const fetchBiometricStatus = async (token, userId) => {
     try {
-      const res = await axios.get('/api/auth/webauthn/status', {
+      const res = await axios.get('/api/auth/face/status', {
         headers: { Authorization: `Bearer ${token}` },
         params: { userId }
       });
       if (res.data && res.data.success) {
         setBiometricStatus({
-          isRegistered: res.data.isRegistered,
-          count: res.data.count,
-          biometrics: res.data.biometrics || [],
+          isEnrolled: res.data.isEnrolled,
+          sampleCount: res.data.sampleCount || 0,
+          enrolledAt: res.data.enrolledAt,
           loading: false
         });
       }
     } catch (e) {
-      console.error('Failed to fetch biometric status:', e);
+      console.error('Failed to fetch face status:', e);
       setBiometricStatus(prev => ({ ...prev, loading: false }));
     }
   };
@@ -99,6 +107,7 @@ export default function Profile() {
 
         setCurrentUser(prev => ({
           ...prev,
+          userId: parsed.id || parsed.userId || prev.userId,
           fullName: parsed.name || parsed.fullName || prev.fullName,
           email: parsed.email || prev.email,
           username: parsed.username || prev.username,
@@ -112,7 +121,7 @@ export default function Profile() {
       }
     }
 
-    const token = localStorage.getItem('alora_token') || localStorage.getItem('token');
+    const token = getAuthToken();
     if (token && userId) {
       fetchBiometricStatus(token, userId);
     }
@@ -140,72 +149,61 @@ export default function Profile() {
       .catch(() => {});
   }, []);
 
-  // Handler to register Face ID / Biometrics
-  const handleRegisterBiometric = async () => {
-    if (typeof window === 'undefined' || !window.PublicKeyCredential) {
-      setBiometricAlertModal({
-        isOpen: true,
-        title: 'Biometrik Tidak Tersedia',
-        message: 'Akses biometrik memerlukan koneksi aman (HTTPS) atau peramban yang mendukung WebAuthn API.',
-        variant: 'warning'
-      });
-      return;
-    }
-
-    const token = localStorage.getItem('alora_token') || localStorage.getItem('token');
-    const userId = currentUser.userId || currentUser.employee_id;
+  const handleRegisterBiometric = () => {
+    const token = getAuthToken();
+    const userId = currentUser.userId;
 
     if (!token) {
       navigate('/login');
       return;
     }
 
+    if (!userId) {
+      setBiometricAlertModal({
+        isOpen: true,
+        title: 'Data Akun Tidak Lengkap',
+        message: 'User ID tidak ditemukan. Silakan logout dan login kembali.',
+        variant: 'warning'
+      });
+      return;
+    }
+
+    setFaceScanOpen(true);
+  };
+
+  const handleFaceEnrollComplete = async (descriptors) => {
+    const token = getAuthToken();
+    const userId = currentUser.userId;
+
+    if (!token || !userId) return;
+
     setBiometricLoading(true);
 
     try {
-      // 1. Get registration options from server
-      const optRes = await axios.post(
-        '/api/auth/webauthn/register-options',
-        { userId },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      if (!optRes.data || !optRes.data.success || !optRes.data.options) {
-        throw new Error(optRes.data?.message || 'Gagal menyiapkan opsi biometrik');
-      }
-
-      // 2. Trigger browser native Face ID / Touch ID enrollment prompt
-      const attResp = await startRegistration({ optionsJSON: optRes.data.options });
-
-      // 3. Send credential attestation to server
       const verifyRes = await axios.post(
-        '/api/auth/webauthn/register-verify',
-        {
-          userId,
-          response: attResp,
-          deviceName: 'Face ID / Touch ID'
-        },
+        '/api/auth/face/enroll',
+        { userId, descriptors },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      if (verifyRes.data && verifyRes.data.success) {
+      if (verifyRes.data?.success) {
+        setFaceScanOpen(false);
         setBiometricAlertModal({
           isOpen: true,
           title: 'Registrasi Berhasil!',
-          message: 'Face ID / Biometrik Anda telah berhasil didaftarkan. Anda sekarang dapat masuk menggunakan Face ID di halaman Login.',
+          message: 'Wajah Anda telah didaftarkan sebagai kode terenkripsi. Anda sekarang dapat masuk dengan scan wajah di halaman Login.',
           variant: 'info'
         });
         fetchBiometricStatus(token, userId);
       } else {
-        throw new Error(verifyRes.data?.message || 'Gagal merekam biometrik');
+        throw new Error(verifyRes.data?.message || 'Gagal menyimpan wajah');
       }
     } catch (err) {
-      console.error('Biometric registration error:', err);
-      if (err.name === 'NotAllowedError') return;
-      const errMsg = err.response?.data?.message || err.message || 'Pendaftaran biometrik gagal atau dibatalkan.';
+      console.error('Face enrollment error:', err);
+      const errMsg = err.response?.data?.message || err.message || 'Pendaftaran wajah gagal.';
       setBiometricAlertModal({
         isOpen: true,
-        title: 'Gagal Daftarkan Biometrik',
+        title: 'Gagal Daftarkan Wajah',
         message: errMsg,
         variant: 'warning'
       });
@@ -214,17 +212,16 @@ export default function Profile() {
     }
   };
 
-  // Handler to remove registered biometrics
   const handleDeleteBiometric = async () => {
-    const token = localStorage.getItem('alora_token') || localStorage.getItem('token');
-    const userId = currentUser.userId || currentUser.employee_id;
+    const token = getAuthToken();
+    const userId = currentUser.userId;
 
-    if (!token) return;
+    if (!token || !userId) return;
 
     setBiometricLoading(true);
 
     try {
-      const res = await axios.delete('/api/auth/webauthn/remove', {
+      const res = await axios.delete('/api/auth/face/remove', {
         headers: { Authorization: `Bearer ${token}` },
         data: { userId }
       });
@@ -232,20 +229,20 @@ export default function Profile() {
       if (res.data && res.data.success) {
         setBiometricAlertModal({
           isOpen: true,
-          title: 'Biometrik Dihapus',
-          message: 'Data Face ID / Biometrik pada akun Anda telah berhasil dihapus.',
+          title: 'Data Wajah Dihapus',
+          message: 'Data login wajah pada akun Anda telah berhasil dihapus.',
           variant: 'info'
         });
         fetchBiometricStatus(token, userId);
       } else {
-        throw new Error(res.data?.message || 'Gagal menghapus biometrik');
+        throw new Error(res.data?.message || 'Gagal menghapus data wajah');
       }
     } catch (err) {
-      console.error('Biometric deletion error:', err);
-      const errMsg = err.response?.data?.message || err.message || 'Gagal menghapus biometrik.';
+      console.error('Face deletion error:', err);
+      const errMsg = err.response?.data?.message || err.message || 'Gagal menghapus data wajah.';
       setBiometricAlertModal({
         isOpen: true,
-        title: 'Gagal Hapus Biometrik',
+        title: 'Gagal Hapus Data Wajah',
         message: errMsg,
         variant: 'warning'
       });
@@ -255,6 +252,7 @@ export default function Profile() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('alora_auth_token');
     localStorage.removeItem('alora_token');
     localStorage.removeItem('alora_user');
     localStorage.removeItem('token');
@@ -482,30 +480,31 @@ export default function Profile() {
               <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-navy-950 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
             </button>
 
-            {/* Biometric & Face ID Security Card */}
-            <div className="relative group">
+            {/* Face login enrollment card */}
+            <div className="relative group w-full bg-white border border-slate-100 rounded-[22px] shadow-[0_4px_16px_rgba(0,0,0,0.03)] p-4 flex items-center gap-3.5 hover:shadow-[0_8px_24px_rgba(5,11,20,0.08)] hover:-translate-y-0.5 transition-all">
               <button
                 id="biometric-card-btn"
+                type="button"
                 onClick={handleRegisterBiometric}
                 disabled={biometricLoading}
-                className="w-full bg-white border border-slate-100 rounded-[22px] shadow-[0_4px_16px_rgba(0,0,0,0.03)] p-4 flex items-center gap-3.5 hover:shadow-[0_8px_24px_rgba(5,11,20,0.08)] hover:-translate-y-0.5 active:scale-[.98] transition-all group text-left cursor-pointer"
+                className="flex-1 flex items-center gap-3.5 text-left min-w-0 disabled:opacity-60"
               >
                 <div className="w-10 h-10 rounded-2xl bg-navy-950/10 text-navy-950 flex items-center justify-center group-hover:scale-110 transition-transform flex-shrink-0">
                   <ScanFace className="w-5.5 h-5.5 text-navy-950" />
                 </div>
                 <div className="flex-1 text-left min-w-0">
                   <span className="text-[13.5px] font-black text-slate-800 group-hover:text-navy-950 transition-colors block leading-tight">
-                    Autentikasi Face ID / Biometrik
+                    Daftar Login Wajah
                   </span>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     {biometricLoading ? (
                       <span className="text-[11px] text-blue-600 font-bold animate-pulse">
-                        Memproses biometrik...
+                        Memproses...
                       </span>
-                    ) : biometricStatus.isRegistered ? (
+                    ) : biometricStatus.isEnrolled ? (
                       <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        Aktif ({biometricStatus.count} Kredensial) &bull; Klik untuk daftar ulang
+                        Aktif ({biometricStatus.sampleCount} sampel) &bull; Klik untuk daftar ulang
                       </span>
                     ) : (
                       <span className="text-[11px] text-slate-400 font-medium block">
@@ -513,28 +512,27 @@ export default function Profile() {
                       </span>
                     )}
                   </div>
+                  <span className="text-[10px] text-slate-400 block mt-1">
+                    Wajah disimpan sebagai kode terenkripsi, bukan foto.
+                  </span>
                 </div>
-
-                {biometricStatus.isRegistered ? (
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button
-                      id="remove-biometric-btn"
-                      title="Hapus Biometrik"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteBiometric();
-                      }}
-                      disabled={biometricLoading}
-                      className="p-1.5 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                    >
-                      <Trash2 className="w-4.5 h-4.5" />
-                    </button>
-                    <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-navy-950 group-hover:translate-x-0.5 transition-all" />
-                  </div>
-                ) : (
-                  <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-navy-950 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
-                )}
               </button>
+
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {biometricStatus.isEnrolled && (
+                  <button
+                    id="remove-biometric-btn"
+                    type="button"
+                    title="Hapus Data Wajah"
+                    onClick={handleDeleteBiometric}
+                    disabled={biometricLoading}
+                    className="p-1.5 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                  >
+                    <Trash2 className="w-4.5 h-4.5" />
+                  </button>
+                )}
+                <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-navy-950 group-hover:translate-x-0.5 transition-all" />
+              </div>
             </div>
 
             {/* Logout button */}
@@ -566,6 +564,19 @@ export default function Profile() {
         confirmText="Keluar"
         cancelText="Batal"
         variant="danger"
+      />
+
+      {/* ===== FACE SCAN MODAL ===== */}
+      <FaceScanModal
+        open={faceScanOpen}
+        mode="manual"
+        title="Daftar Login Wajah"
+        hint="Ambil 3 sampel wajah. Pastikan hanya wajah Anda sendiri."
+        samplesRequired={3}
+        onComplete={handleFaceEnrollComplete}
+        onClose={() => !biometricLoading && setFaceScanOpen(false)}
+        busy={biometricLoading}
+        busyLabel="Menyimpan wajah..."
       />
 
       {/* ===== BIOMETRIC INFORMATION MODAL ===== */}

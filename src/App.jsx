@@ -9,6 +9,10 @@ import Home from './pages/Home.jsx';
 import Riwayat from './pages/Riwayat.jsx';
 import Profil from './pages/Profil.jsx';
 import EditProfile from './pages/EditProfile.jsx';
+import Perizinan from './pages/Perizinan.jsx';
+import Bugar from './pages/Bugar.jsx';
+import BugarTracking from './pages/BugarTracking.jsx';
+import ManagementAbsensi from './pages/ManagementAbsensi.jsx';
 
 function App() {
   const [showSplash, setShowSplash] = useState(true);
@@ -59,6 +63,22 @@ function App() {
             <Route 
               path="/edit-profile" 
               element={!showSplash && !user ? <Navigate to="/login" replace /> : <EditProfile />} 
+            />
+            <Route 
+              path="/perizinan" 
+              element={!showSplash && !user ? <Navigate to="/login" replace /> : <Perizinan />} 
+            />
+            <Route 
+              path="/management-attendance" 
+              element={!showSplash && !user ? <Navigate to="/login" replace /> : <ManagementAbsensi />} 
+            />
+            <Route 
+              path="/bugar" 
+              element={!showSplash && !user ? <Navigate to="/login" replace /> : <Bugar />} 
+            />
+            <Route 
+              path="/bugar/tracking" 
+              element={!showSplash && !user ? <Navigate to="/login" replace /> : <BugarTracking />} 
             />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

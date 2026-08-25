@@ -22,3 +22,77 @@
   pointer-events: none;
   z-index: 0;
 }
+
+.bugar-map {
+  height: 280px;
+  width: 100%;
+  border-radius: 18px;
+  overflow: hidden;
+  position: relative;
+}
+
+.bugar-map .leaflet-container {
+  height: 100%;
+  width: 100%;
+  z-index: 0;
+}
+
+.tracking-marker {
+  background: transparent;
+  border: none;
+}
+
+.bugar-map-locate {
+  position: absolute;
+  bottom: 0.75rem;
+  right: 0.75rem;
+  z-index: 400;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  background: #fff;
+  border: 1px solid rgb(226 232 240);
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  display: grid;
+  place-items: center;
+  color: #0b1d3a;
+}
+
+.bugar-map-locate:disabled {
+  opacity: 0.5;
+}
+
+.bugar-loc-pulse {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.bugar-loc-pulse::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--bugar-accent, #e11d48);
+  opacity: 0.25;
+  animation: loc-pulse 1.6s ease-out infinite;
+}
+
+.bugar-loc-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bugar-accent, #e11d48);
+  border: 3px solid #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes loc-pulse {
+  0% { transform: scale(0.6); opacity: 0.4; }
+  100% { transform: scale(1.8); opacity: 0; }
+}

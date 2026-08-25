@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { 
   Info, 
   CalendarCheck, 
@@ -18,6 +19,13 @@ import Modal from '../components/Modal.jsx';
 import { formatName } from '../utils/FormatName.js';
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 
+const homeApi = axios.create({ baseURL: '/api' });
+homeApi.interceptors.request.use((config) => {
+  const token = localStorage.getItem('alora_auth_token') || localStorage.getItem('alora_token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 export default function Home() {
   useDocumentTitle('Home');
   const navigate = useNavigate();
@@ -28,6 +36,7 @@ export default function Home() {
   const [modalContent, setModalContent] = useState('');
   const [currentTime, setCurrentTime] = useState('');
   const [currentDateStr, setCurrentDateStr] = useState('');
+  const [leaderRole, setLeaderRole] = useState(null);
 
   // Load authenticated user data
   useEffect(() => {
@@ -64,6 +73,12 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    homeApi.get('/auth/leader-role')
+      .then((r) => setLeaderRole(r.data?.data?.role || null))
+      .catch(() => setLeaderRole(null));
+  }, []);
+
   // Greeting based on current time
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -82,6 +97,10 @@ export default function Home() {
   const handleMenuClick = (item) => {
     if (item.id === 'absensi') {
       navigate('/riwayat');
+    } else if (item.id === 'perizinan') {
+      navigate('/perizinan');
+    } else if (item.id === 'alorabugar') {
+      navigate('/bugar');
     } else {
       openMenuModal(item.title, item.modalDesc);
     }
@@ -237,6 +256,25 @@ export default function Home() {
           </div>
         </div>
 
+        {leaderRole === 'management' && (
+          <div
+            onClick={() => navigate('/management-attendance')}
+            className="relative overflow-hidden rounded-[20px] px-4 py-5 flex items-center gap-4 cursor-pointer transition hover:-translate-y-0.5 active:scale-[.97] shadow-[0_6px_20px_rgba(76,29,149,.22)]"
+            style={{ background: 'linear-gradient(135deg, #2E1065 0%, #4C1D95 45%, #7C3AED 100%)' }}
+          >
+            <div className="w-12 h-12 rounded-[14px] bg-white/15 border border-white/20 grid place-items-center flex-shrink-0">
+              <CalendarCheck className="w-6 h-6 text-violet-200" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[14px] font-extrabold text-white leading-snug">Absensi Management</div>
+              <div className="text-[11px] text-white/55 font-medium mt-0.5 leading-snug">
+                Absen spesial tim manajemen · Bebas lokasi
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-white/50 flex-shrink-0" />
+          </div>
+        )}
+
         {/* SECTION 2: LIST CARD INFORMASI & REKAP AKTIVITAS */}
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between px-1">
@@ -260,25 +298,25 @@ export default function Home() {
               <div className="flex flex-col flex-grow">
                 <div className="flex items-center justify-between gap-2">
                   <h4 className="text-xs font-extrabold text-navy-950">
-                    Presensi Masuk Berhasil
+                    Absensi Hari Ini
                   </h4>
                   <span className="text-[10px] text-slate-400 font-semibold">
-                    08:00 WIB
+                    GPS
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
-                  Kantor Pusat / Outlet Utama Alora
+                  Ketuk untuk clock in / clock out
                 </p>
                 <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 mt-2">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Tercatat via GPS</span>
+                  <span>GPS · radius 2 km HO-ALR</span>
                 </div>
               </div>
             </div>
 
             {/* INFO CARD 2: ALORA BUGAR */}
             <div 
-              onClick={() => openMenuModal('Detail Alora Bugar', 'Kondisi kesehatan harian Anda dinyatakan prima dan siap beraktivitas.')}
+              onClick={() => navigate('/bugar')}
               className="bg-white rounded-[22px] p-4 border border-slate-200/80 shadow-sm flex items-start gap-3.5 cursor-pointer hover:border-rose-300 transition group"
             >
               <div className="w-10 h-10 rounded-[14px] bg-rose-50 text-rose-600 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -287,18 +325,18 @@ export default function Home() {
               <div className="flex flex-col flex-grow">
                 <div className="flex items-center justify-between gap-2">
                   <h4 className="text-xs font-extrabold text-navy-950">
-                    Kondisi Kesehatan Prima
+                    Alora Bugar
                   </h4>
                   <span className="text-[10px] text-slate-400 font-semibold">
-                    07:30 WIB
+                    GPS
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
-                  Skor harian: <strong className="text-navy-950 font-mono">95 / 100</strong> &bull; Siap bertugas
+                  Pilih fokus lalu mulai lari atau sepeda
                 </p>
                 <div className="flex items-center gap-1 text-[10px] font-bold text-rose-600 mt-2">
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>Status Kebugaran Baik</span>
+                  <span>Ketuk untuk mulai</span>
                 </div>
               </div>
             </div>
