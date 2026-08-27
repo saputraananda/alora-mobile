@@ -8,7 +8,7 @@ import ConfirmModal from '../components/ConfirmModal.jsx';
 import BugarTrackingMap from '../components/bugar/BugarTrackingMap.jsx';
 import { calcCalories, avgSpeedKmh, paceMinPerKm, formatPace, formatSpeed } from '../utils/bugarCalories.js';
 import { downsamplePoints } from '../utils/bugarGeo.js';
-import { rollingPaceMinPerKm, rollingSpeedKmh } from '../utils/bugarPace.js';
+import { tickLivePaceMinPerKm, tickLiveSpeedKmh } from '../utils/bugarPace.js';
 import { estimateStepsFromDistance } from '../utils/bugarSteps.js';
 import { fmtTime } from '../utils/bugarFormat.js';
 import { clearBugarDraft, loadBugarDraft, saveBugarDraft } from '../utils/bugarDraft.js';
@@ -45,6 +45,9 @@ export default function BugarTracking() {
   const [locateError, setLocateError] = useState(null);
   const restoredRef = useRef(false);
   const wakeLockRef = useRef(null);
+  const liveMetricRef = useRef(0);
+  const paceSamplesRef = useRef([]);
+  const [liveMetric, setLiveMetric] = useState(0);
 
   const accentColor = ACCENT[sport] || ACCENT.run;
   const {
@@ -56,6 +59,7 @@ export default function BugarTracking() {
     hydrate,
     lastFix,
     isMoving,
+    paceSamples,
   } = useGeolocationTrack({ active: running && validSport, sport: validSport ? sport : 'run' });
 
   const draftStepInitial = canRestore && draft?.stepCount != null ? Number(draft.stepCount) : 0;
@@ -192,6 +196,28 @@ export default function BugarTracking() {
   }, [computeElapsed]);
 
   useEffect(() => {
+    paceSamplesRef.current = paceSamples;
+  }, [paceSamples]);
+
+  useEffect(() => {
+    if (!running || !validSport) {
+      liveMetricRef.current = 0;
+      setLiveMetric(0);
+      return;
+    }
+    const id = window.setInterval(() => {
+      const previous = liveMetricRef.current;
+      const samples = paceSamplesRef.current;
+      const next = sport === 'run'
+        ? tickLivePaceMinPerKm({ samples, previous })
+        : tickLiveSpeedKmh({ samples, previous });
+      liveMetricRef.current = next;
+      setLiveMetric(next);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [running, sport, validSport]);
+
+  useEffect(() => {
     if (lastFix) setUserLocation({ lat: lastFix.lat, lng: lastFix.lng });
   }, [lastFix]);
 
@@ -242,10 +268,8 @@ export default function BugarTracking() {
   const durationForAvg = movingDurationSec > 0 ? movingDurationSec : elapsedSec;
   const avgPace = paceMinPerKm(distanceKm, durationForAvg);
   const avgSpeed = avgSpeedKmh(distanceKm, durationForAvg);
-  const currentPace = isMoving ? rollingPaceMinPerKm(points) : 0;
-  const currentSpeed = isMoving ? rollingSpeedKmh(points) : 0;
   const metricLabel = sport === 'run' ? 'Pace' : 'Speed';
-  const metricValue = sport === 'run' ? formatPace(currentPace) : formatSpeed(currentSpeed);
+  const metricValue = sport === 'run' ? formatPace(liveMetric) : formatSpeed(liveMetric);
   const avgMetricValue = sport === 'run' ? formatPace(avgPace) : formatSpeed(avgSpeed);
   const mapLocation = lastFix
     ? { lat: lastFix.lat, lng: lastFix.lng }
