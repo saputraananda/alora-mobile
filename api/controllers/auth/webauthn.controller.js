@@ -5,7 +5,7 @@ import {
   verifyRegistrationResponse,
 } from '@simplewebauthn/server';
 import { isoBase64URL, isoUint8Array } from '@simplewebauthn/server/helpers';
-import getAloraMobilePrisma from '../../db/aloraMobilePrisma.js';
+import { aloraMobilePool } from '../../db/pool.js';
 import { findUserById, findUserByUsername } from '../../utils/authUser.js';
 import { buildLoginSuccessResponse } from './login.controller.js';
 import { getWebAuthnConfig } from '../../utils/webauthnConfig.js';
@@ -18,11 +18,14 @@ function assertSelfUser(req, userId) {
 }
 
 async function loadCredentialsForUser(userId) {
-  const prisma = getAloraMobilePrisma();
-  return prisma.userWebauthnCredential.findMany({
-    where: { userId },
-    orderBy: { createdAt: 'desc' },
-  });
+  const [rows] = await aloraMobilePool.query(
+    `SELECT *
+     FROM user_webauthn_credentials
+     WHERE user_id = ?
+     ORDER BY created_at DESC`,
+    [userId],
+  );
+  return rows;
 }
 
 function toAuthenticatorDevice(row) {
@@ -35,8 +38,8 @@ function toAuthenticatorDevice(row) {
     }
   }
   return {
-    id: row.credentialId,
-    publicKey: isoBase64URL.toBuffer(row.publicKey),
+    id: row.credential_id,
+    publicKey: isoBase64URL.toBuffer(row.public_key),
     counter: Number(row.counter),
     transports,
   };
@@ -56,9 +59,9 @@ export const getWebauthnStatus = async (req, res) => {
       count: rows.length,
       biometrics: rows.map((row) => ({
         id: row.id,
-        deviceName: row.deviceName || 'Perangkat biometrik',
-        createdAt: row.createdAt,
-        deviceType: row.deviceType,
+        deviceName: row.device_name || 'Perangkat biometrik',
+        createdAt: row.created_at,
+        deviceType: row.device_type,
       })),
     });
   } catch (error) {
@@ -95,7 +98,7 @@ export const registerOptions = async (req, res) => {
         residentKey: 'preferred',
       },
       excludeCredentials: existing.map((row) => ({
-        id: row.credentialId,
+        id: row.credential_id,
         transports: row.transports ? JSON.parse(row.transports) : undefined,
       })),
     });
@@ -135,20 +138,22 @@ export const registerVerify = async (req, res) => {
     }
 
     const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
-    const prisma = getAloraMobilePrisma();
 
-    await prisma.userWebauthnCredential.create({
-      data: {
+    await aloraMobilePool.query(
+      `INSERT INTO user_webauthn_credentials
+        (user_id, credential_id, public_key, counter, device_type, backed_up, transports, device_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
         userId,
-        credentialId: credential.id,
-        publicKey: isoBase64URL.fromBuffer(credential.publicKey),
-        counter: BigInt(credential.counter),
-        deviceType: credentialDeviceType,
-        backedUp: credentialBackedUp,
-        transports: credential.transports?.length ? JSON.stringify(credential.transports) : null,
+        credential.id,
+        isoBase64URL.fromBuffer(credential.publicKey),
+        Number(credential.counter),
+        credentialDeviceType,
+        credentialBackedUp ? 1 : 0,
+        credential.transports?.length ? JSON.stringify(credential.transports) : null,
         deviceName,
-      },
-    });
+      ],
+    );
 
     return res.json({
       success: true,
@@ -167,8 +172,10 @@ export const removeCredentials = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Akses ditolak' });
     }
 
-    const prisma = getAloraMobilePrisma();
-    await prisma.userWebauthnCredential.deleteMany({ where: { userId } });
+    await aloraMobilePool.query(
+      'DELETE FROM user_webauthn_credentials WHERE user_id = ?',
+      [userId],
+    );
     return res.json({ success: true, message: 'Biometrik dihapus' });
   } catch (error) {
     console.error('[webauthn] removeCredentials', error);
@@ -200,7 +207,7 @@ export const loginOptions = async (req, res) => {
     const options = await generateAuthenticationOptions({
       rpID,
       allowCredentials: rows.map((row) => ({
-        id: row.credentialId,
+        id: row.credential_id,
         transports: row.transports ? JSON.parse(row.transports) : undefined,
       })),
       userVerification: 'required',
@@ -229,7 +236,7 @@ export const loginVerify = async (req, res) => {
     }
 
     const rows = await loadCredentialsForUser(dbUser.id);
-    const matched = rows.find((row) => row.credentialId === response.id);
+    const matched = rows.find((row) => row.credential_id === response.id);
     if (!matched) {
       return res.status(400).json({ success: false, message: 'Kredensial biometrik tidak dikenali' });
     }
@@ -248,11 +255,10 @@ export const loginVerify = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Verifikasi Face ID gagal' });
     }
 
-    const prisma = getAloraMobilePrisma();
-    await prisma.userWebauthnCredential.update({
-      where: { id: matched.id },
-      data: { counter: BigInt(verification.authenticationInfo.newCounter) },
-    });
+    await aloraMobilePool.query(
+      'UPDATE user_webauthn_credentials SET counter = ? WHERE id = ?',
+      [Number(verification.authenticationInfo.newCounter), matched.id],
+    );
 
     return res.status(200).json(
       buildLoginSuccessResponse(

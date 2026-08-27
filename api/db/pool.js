@@ -15,7 +15,7 @@ export const mainPool = mysql.createPool({
   queueLimit: 0
 });
 
-// Alora Mobile app database pool (attendance, leave; Prisma migrate target)
+// Alora Mobile app database pool (attendance, leave, bugar, face, webauthn)
 export const aloraMobilePool = mysql.createPool({
   host: process.env.DB_ALORA_MOBILE_HOST,
   port: parseInt(process.env.DB_ALORA_MOBILE_PORT),

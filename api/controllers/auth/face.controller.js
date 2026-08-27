@@ -1,4 +1,4 @@
-import getAloraMobilePrisma from '../../db/aloraMobilePrisma.js';
+import { aloraMobilePool } from '../../db/pool.js';
 import { findUserByUsername, findUserById } from '../../utils/authUser.js';
 import { buildLoginSuccessResponse } from './login.controller.js';
 import { decryptEmbedding, encryptEmbedding, EMBEDDING_SIZE } from '../../utils/faceCrypto.js';
@@ -35,15 +35,17 @@ export const getFaceStatus = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Akses ditolak' });
     }
 
-    const prisma = getAloraMobilePrisma();
-    const row = await prisma.userFaceCredential.findUnique({ where: { userId } });
+    const [[row]] = await aloraMobilePool.query(
+      'SELECT user_id, model_version, sample_count, created_at FROM user_face_credentials WHERE user_id = ? LIMIT 1',
+      [userId],
+    );
 
     return res.json({
       success: true,
       isEnrolled: !!row,
-      modelVersion: row?.modelVersion ?? null,
-      sampleCount: row?.sampleCount ?? 0,
-      enrolledAt: row?.createdAt ?? null,
+      modelVersion: row?.model_version ?? null,
+      sampleCount: row?.sample_count ?? 0,
+      enrolledAt: row?.created_at ?? null,
     });
   } catch (error) {
     console.error('[face] getFaceStatus', error);
@@ -70,22 +72,18 @@ export const enrollFace = async (req, res) => {
 
     const averaged = averageDescriptors(descriptors);
     const encrypted = encryptEmbedding(averaged);
-    const prisma = getAloraMobilePrisma();
 
-    await prisma.userFaceCredential.upsert({
-      where: { userId },
-      create: {
-        userId,
-        embeddingEncrypted: encrypted,
-        modelVersion: MODEL_VERSION,
-        sampleCount: descriptors.length,
-      },
-      update: {
-        embeddingEncrypted: encrypted,
-        modelVersion: MODEL_VERSION,
-        sampleCount: descriptors.length,
-      },
-    });
+    await aloraMobilePool.query(
+      `INSERT INTO user_face_credentials
+        (user_id, embedding_encrypted, model_version, sample_count)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+        embedding_encrypted = VALUES(embedding_encrypted),
+        model_version = VALUES(model_version),
+        sample_count = VALUES(sample_count),
+        updated_at = CURRENT_TIMESTAMP`,
+      [userId, encrypted, MODEL_VERSION, descriptors.length],
+    );
 
     return res.json({
       success: true,
@@ -104,8 +102,10 @@ export const removeFace = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Akses ditolak' });
     }
 
-    const prisma = getAloraMobilePrisma();
-    await prisma.userFaceCredential.deleteMany({ where: { userId } });
+    await aloraMobilePool.query(
+      'DELETE FROM user_face_credentials WHERE user_id = ?',
+      [userId],
+    );
     return res.json({ success: true, message: 'Data wajah dihapus' });
   } catch (error) {
     console.error('[face] removeFace', error);
@@ -130,10 +130,9 @@ export const faceLogin = async (req, res) => {
       });
     }
 
-    const prisma = getAloraMobilePrisma();
-    const rows = await prisma.userFaceCredential.findMany({
-      select: { userId: true, embeddingEncrypted: true },
-    });
+    const [rows] = await aloraMobilePool.query(
+      'SELECT user_id, embedding_encrypted FROM user_face_credentials',
+    );
 
     if (!rows.length) {
       return res.status(400).json({
@@ -143,8 +142,8 @@ export const faceLogin = async (req, res) => {
     }
 
     const candidates = rows.map((row) => ({
-      userId: row.userId,
-      enrolled: decryptEmbedding(row.embeddingEncrypted),
+      userId: row.user_id,
+      enrolled: decryptEmbedding(row.embedding_encrypted),
     }));
 
     const verification = verifyLoginProbes(descriptors, candidates);
@@ -180,8 +179,10 @@ export const hasFaceEnrollment = async (req, res) => {
       return res.json({ success: true, hasEnrollment: false });
     }
 
-    const prisma = getAloraMobilePrisma();
-    const row = await prisma.userFaceCredential.findUnique({ where: { userId: dbUser.id } });
+    const [[row]] = await aloraMobilePool.query(
+      'SELECT 1 FROM user_face_credentials WHERE user_id = ? LIMIT 1',
+      [dbUser.id],
+    );
     return res.json({ success: true, hasEnrollment: !!row });
   } catch (error) {
     console.error('[face] hasFaceEnrollment', error);

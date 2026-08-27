@@ -1,5 +1,4 @@
-import getAloraMobilePrisma from '../db/aloraMobilePrisma.js';
-import { mainPool } from '../db/pool.js';
+import { aloraMobilePool, mainPool } from '../db/pool.js';
 
 const GOALS = ['diet', 'maintenance'];
 const SPORTS = ['run', 'cycle'];
@@ -63,68 +62,97 @@ async function fetchEmployeeGender(employeeId) {
   }
 }
 
-function clearHaidFields() {
-  return {
-    haidActive: false,
-    haidStartedAt: null,
-    haidDurationDays: null,
-    haidEndsAt: null,
-    haidSavedGoalFocus: null,
-    haidSavedWeeklyTargetKm: null,
-    haidCheckDueAt: null,
-    haidFollowUpPending: false,
-  };
+async function findBugarProfile(employeeId) {
+  const [[row]] = await aloraMobilePool.query(
+    'SELECT * FROM tr_worker_bugar_profile WHERE employee_id = ? LIMIT 1',
+    [employeeId],
+  );
+  return row ?? null;
 }
 
-async function resolveHaidState(prisma, row) {
-  if (!row?.haidActive || !row.haidEndsAt) return row;
-  if (Date.now() < new Date(row.haidEndsAt).getTime()) return row;
+async function findBugarSessionByClientId(clientSessionId) {
+  const [[row]] = await aloraMobilePool.query(
+    'SELECT * FROM tr_worker_bugar_session WHERE client_session_id = ? LIMIT 1',
+    [clientSessionId],
+  );
+  return row ?? null;
+}
 
-  const restoredGoal = row.haidSavedGoalFocus ?? row.goalFocus;
-  const restoredTarget = row.haidSavedWeeklyTargetKm != null
-    ? num(row.haidSavedWeeklyTargetKm)
+async function resolveHaidState(row) {
+  if (!row?.haid_active || !row.haid_ends_at) return row;
+  if (Date.now() < new Date(row.haid_ends_at).getTime()) return row;
+
+  const restoredGoal = row.haid_saved_goal_focus ?? row.goal_focus;
+  const restoredTarget = row.haid_saved_weekly_target_km != null
+    ? num(row.haid_saved_weekly_target_km)
     : weeklyTargetKmForGoal(restoredGoal);
-  const checkDue = new Date(new Date(row.haidEndsAt).getTime() + HAID_FOLLOW_UP_MS);
+  const checkDue = new Date(new Date(row.haid_ends_at).getTime() + HAID_FOLLOW_UP_MS);
 
-  return prisma.trWorkerBugarProfile.update({
-    where: { employeeId: row.employeeId },
-    data: {
-      haidActive: false,
-      goalFocus: restoredGoal,
-      weeklyTargetKm: restoredTarget,
-      haidFollowUpPending: true,
-      haidCheckDueAt: checkDue,
-    },
-  });
+  await aloraMobilePool.query(
+    `UPDATE tr_worker_bugar_profile SET
+      haid_active = 0,
+      goal_focus = ?,
+      weekly_target_km = ?,
+      haid_follow_up_pending = 1,
+      haid_check_due_at = ?
+    WHERE employee_id = ?`,
+    [restoredGoal, restoredTarget, checkDue, row.employee_id],
+  );
+
+  return findBugarProfile(row.employee_id);
 }
 
-async function applyHaidStart(prisma, employeeId, existing, durationDays) {
+async function applyHaidStart(employeeId, existing, durationDays) {
   const days = durationDays ?? HAID_DEFAULT_DURATION_DAYS;
   const now = new Date();
   const endsAt = computeHaidEndsAt(now, days);
-  const savedGoal = existing.goalFocus;
-  const savedTarget = existing.weeklyTargetKm ?? weeklyTargetKmForGoal(savedGoal);
+  const savedGoal = existing.goal_focus;
+  const savedTarget = existing.weekly_target_km ?? weeklyTargetKmForGoal(savedGoal);
   const haidTarget = haidWeeklyTargetForGoal(savedGoal);
 
-  return prisma.trWorkerBugarProfile.update({
-    where: { employeeId },
-    data: {
-      haidActive: true,
-      haidStartedAt: now,
-      haidDurationDays: days,
-      haidEndsAt: endsAt,
-      haidSavedGoalFocus: savedGoal,
-      haidSavedWeeklyTargetKm: savedTarget,
-      haidFollowUpPending: false,
-      haidCheckDueAt: null,
-      weeklyTargetKm: haidTarget,
-    },
-  });
+  await aloraMobilePool.query(
+    `UPDATE tr_worker_bugar_profile SET
+      haid_active = 1,
+      haid_started_at = ?,
+      haid_duration_days = ?,
+      haid_ends_at = ?,
+      haid_saved_goal_focus = ?,
+      haid_saved_weekly_target_km = ?,
+      haid_follow_up_pending = 0,
+      haid_check_due_at = NULL,
+      weekly_target_km = ?
+    WHERE employee_id = ?`,
+    [now, days, endsAt, savedGoal, savedTarget, haidTarget, employeeId],
+  );
+
+  return findBugarProfile(employeeId);
 }
 
-async function loadSerializedProfile(prisma, employeeId) {
-  let row = await prisma.trWorkerBugarProfile.findUnique({ where: { employeeId } });
-  if (row) row = await resolveHaidState(prisma, row);
+async function clearHaidFields(employeeId, extra = {}) {
+  await aloraMobilePool.query(
+    `UPDATE tr_worker_bugar_profile SET
+      haid_active = 0,
+      haid_started_at = NULL,
+      haid_duration_days = NULL,
+      haid_ends_at = NULL,
+      haid_saved_goal_focus = NULL,
+      haid_saved_weekly_target_km = NULL,
+      haid_check_due_at = NULL,
+      haid_follow_up_pending = 0,
+      goal_focus = ?,
+      weekly_target_km = ?
+    WHERE employee_id = ?`,
+    [
+      extra.goal_focus ?? null,
+      extra.weekly_target_km ?? null,
+      employeeId,
+    ],
+  );
+}
+
+async function loadSerializedProfile(employeeId) {
+  let row = await findBugarProfile(employeeId);
+  if (row) row = await resolveHaidState(row);
   const gender = await fetchEmployeeGender(employeeId);
   return serializeProfile(row, { gender });
 }
@@ -133,6 +161,24 @@ function num(value) {
   if (value == null) return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function bool(value) {
+  return value === true || value === 1 || value === '1';
+}
+
+function parsePointsJson(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  if (value && typeof value === 'object') return value;
+  return [];
 }
 
 function isBodyComplete(heightCm, weightKg) {
@@ -212,13 +258,13 @@ function toMonthKeyWib(date) {
   return monthKeyFromParts(year, month);
 }
 
-async function fetchAvailableMonthsWib(prisma) {
-  const rows = await prisma.trWorkerBugarSession.findMany({
-    select: { endedAt: true },
-  });
+async function fetchAvailableMonthsWib() {
+  const [rows] = await aloraMobilePool.query(
+    'SELECT ended_at FROM tr_worker_bugar_session',
+  );
   const keys = new Set();
   for (const row of rows) {
-    if (row.endedAt) keys.add(toMonthKeyWib(row.endedAt));
+    if (row.ended_at) keys.add(toMonthKeyWib(row.ended_at));
   }
   return [...keys].sort((a, b) => b.localeCompare(a));
 }
@@ -228,61 +274,60 @@ function serializeProfile(row, extras = {}) {
   const gender = extras.gender ?? null;
   const now = Date.now();
   const followUpDue = !!(
-    row.haidFollowUpPending
-    && row.haidCheckDueAt
-    && now >= new Date(row.haidCheckDueAt).getTime()
+    bool(row.haid_follow_up_pending)
+    && row.haid_check_due_at
+    && now >= new Date(row.haid_check_due_at).getTime()
   );
   const haidActive = !!(
-    row.haidActive
-    && row.haidEndsAt
-    && now < new Date(row.haidEndsAt).getTime()
+    bool(row.haid_active)
+    && row.haid_ends_at
+    && now < new Date(row.haid_ends_at).getTime()
   );
   return {
     id: row.id,
-    employee_id: row.employeeId,
-    goal_focus: row.goalFocus,
-    height_cm: num(row.heightCm),
-    weight_kg: num(row.weightKg),
-    weekly_target_km: num(row.weeklyTargetKm),
+    employee_id: row.employee_id,
+    goal_focus: row.goal_focus,
+    height_cm: num(row.height_cm),
+    weight_kg: num(row.weight_kg),
+    weekly_target_km: num(row.weekly_target_km),
     gender,
     haid_eligible: gender === 'P',
     haid_active: haidActive,
-    haid_started_at: row.haidStartedAt,
-    haid_duration_days: row.haidDurationDays,
-    haid_ends_at: row.haidEndsAt,
-    haid_follow_up_pending: row.haidFollowUpPending ?? false,
-    haid_check_due_at: row.haidCheckDueAt,
+    haid_started_at: row.haid_started_at,
+    haid_duration_days: row.haid_duration_days,
+    haid_ends_at: row.haid_ends_at,
+    haid_follow_up_pending: bool(row.haid_follow_up_pending),
+    haid_check_due_at: row.haid_check_due_at,
     haid_follow_up_due: followUpDue,
-    effective_weekly_target_km: num(row.weeklyTargetKm),
+    effective_weekly_target_km: num(row.weekly_target_km),
     haid_light_tips: gender === 'P' ? HAID_LIGHT_EXERCISE_TIPS : [],
-    created_at: row.createdAt,
-    updated_at: row.updatedAt,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
   };
 }
 
 function serializeSession(row) {
   if (!row) return null;
-  const points = Array.isArray(row.pointsJson) ? row.pointsJson : [];
   return {
     id: row.id,
-    client_session_id: row.clientSessionId,
-    employee_id: row.employeeId,
-    employee_name: row.employeeName,
+    client_session_id: row.client_session_id,
+    employee_id: row.employee_id,
+    employee_name: row.employee_name,
     sport: row.sport,
-    goal_focus: row.goalFocus,
-    started_at: row.startedAt,
-    ended_at: row.endedAt,
-    duration_sec: row.durationSec,
-    distance_km: num(row.distanceKm),
+    goal_focus: row.goal_focus,
+    started_at: row.started_at,
+    ended_at: row.ended_at,
+    duration_sec: row.duration_sec,
+    distance_km: num(row.distance_km),
     calories: row.calories,
-    avg_pace_or_speed: num(row.avgPaceOrSpeed),
-    step_count: row.stepCount ?? null,
-    step_source: row.stepSource ?? null,
-    haid_mode: row.haidMode ?? false,
-    point_count: row.pointCount,
-    points,
-    created_at: row.createdAt,
-    updated_at: row.updatedAt,
+    avg_pace_or_speed: num(row.avg_pace_or_speed),
+    step_count: row.step_count ?? null,
+    step_source: row.step_source ?? null,
+    haid_mode: bool(row.haid_mode),
+    point_count: row.point_count,
+    points: parsePointsJson(row.points_json),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
   };
 }
 
@@ -299,8 +344,7 @@ function sortLeaderboard(entries, sortBy) {
 
 export const getBugarProfile = async (req, res) => {
   try {
-    const prisma = getAloraMobilePrisma();
-    const profile = await loadSerializedProfile(prisma, req.employeeId);
+    const profile = await loadSerializedProfile(req.employeeId);
     return res.json({ profile });
   } catch (error) {
     console.error('[bugar] getBugarProfile', error);
@@ -310,23 +354,19 @@ export const getBugarProfile = async (req, res) => {
 
 export const putBugarProfile = async (req, res) => {
   try {
-    const prisma = getAloraMobilePrisma();
-    const existing = await prisma.trWorkerBugarProfile.findUnique({
-      where: { employeeId: req.employeeId },
-    });
-
+    const existing = await findBugarProfile(req.employeeId);
     const data = {};
 
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'goal_focus')) {
-      if (existing?.haidActive) {
+      if (existing && bool(existing.haid_active)) {
         return res.status(400).json({ message: 'Selesaikan mode haid dulu sebelum mengubah fokus' });
       }
       const goal = req.body.goal_focus;
       if (goal !== null && goal !== '' && !GOALS.includes(goal)) {
         return res.status(400).json({ message: 'Fokus tujuan tidak valid' });
       }
-      data.goalFocus = goal || null;
-      data.weeklyTargetKm = weeklyTargetKmForGoal(data.goalFocus);
+      data.goal_focus = goal || null;
+      data.weekly_target_km = weeklyTargetKmForGoal(data.goal_focus);
     }
 
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'height_cm')) {
@@ -334,7 +374,7 @@ export const putBugarProfile = async (req, res) => {
       if (heightCm != null && (heightCm < 100 || heightCm > 250)) {
         return res.status(400).json({ message: 'Tinggi 100–250 cm' });
       }
-      data.heightCm = heightCm;
+      data.height_cm = heightCm;
     }
 
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'weight_kg')) {
@@ -342,24 +382,40 @@ export const putBugarProfile = async (req, res) => {
       if (weightKg != null && (weightKg < 30 || weightKg > 250)) {
         return res.status(400).json({ message: 'Berat 30–250 kg' });
       }
-      data.weightKg = weightKg;
+      data.weight_kg = weightKg;
     }
 
-    const resolvedGoalFocus = data.goalFocus ?? existing?.goalFocus ?? null;
+    const resolvedGoalFocus = data.goal_focus ?? existing?.goal_focus ?? null;
 
-    const row = await prisma.trWorkerBugarProfile.upsert({
-      where: { employeeId: req.employeeId },
-      create: {
-        employeeId: req.employeeId,
-        goalFocus: resolvedGoalFocus,
-        heightCm: data.heightCm ?? existing?.heightCm ?? null,
-        weightKg: data.weightKg ?? existing?.weightKg ?? null,
-        weeklyTargetKm: data.weeklyTargetKm ?? weeklyTargetKmForGoal(resolvedGoalFocus),
-      },
-      update: data,
-    });
+    if (existing) {
+      const sets = [];
+      const params = [];
+      for (const [key, value] of Object.entries(data)) {
+        sets.push(`${key} = ?`);
+        params.push(value);
+      }
+      if (sets.length > 0) {
+        await aloraMobilePool.query(
+          `UPDATE tr_worker_bugar_profile SET ${sets.join(', ')} WHERE employee_id = ?`,
+          [...params, req.employeeId],
+        );
+      }
+    } else {
+      await aloraMobilePool.query(
+        `INSERT INTO tr_worker_bugar_profile
+          (employee_id, goal_focus, height_cm, weight_kg, weekly_target_km)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          req.employeeId,
+          resolvedGoalFocus,
+          data.height_cm ?? null,
+          data.weight_kg ?? null,
+          data.weekly_target_km ?? weeklyTargetKmForGoal(resolvedGoalFocus),
+        ],
+      );
+    }
 
-    const profile = await loadSerializedProfile(prisma, req.employeeId);
+    const profile = await loadSerializedProfile(req.employeeId);
     return res.json({ profile });
   } catch (error) {
     console.error('[bugar] putBugarProfile', error);
@@ -369,24 +425,21 @@ export const putBugarProfile = async (req, res) => {
 
 export const startBugarHaid = async (req, res) => {
   try {
-    const prisma = getAloraMobilePrisma();
     const gender = await fetchEmployeeGender(req.employeeId);
     if (gender !== 'P') {
       return res.status(403).json({ message: 'Mode haid hanya untuk perempuan' });
     }
 
-    const existing = await prisma.trWorkerBugarProfile.findUnique({
-      where: { employeeId: req.employeeId },
-    });
-    if (!existing || !isBodyComplete(existing.heightCm, existing.weightKg)) {
+    const existing = await findBugarProfile(req.employeeId);
+    if (!existing || !isBodyComplete(existing.height_cm, existing.weight_kg)) {
       return res.status(400).json({ message: 'Lengkapi profil tubuh terlebih dahulu' });
     }
-    if (!existing.goalFocus || !GOALS.includes(existing.goalFocus)) {
+    if (!existing.goal_focus || !GOALS.includes(existing.goal_focus)) {
       return res.status(400).json({ message: 'Pilih fokus tujuan terlebih dahulu' });
     }
 
-    let resolved = await resolveHaidState(prisma, existing);
-    if (resolved.haidActive) {
+    let resolved = await resolveHaidState(existing);
+    if (bool(resolved.haid_active)) {
       return res.status(409).json({ message: 'Mode haid sudah aktif' });
     }
 
@@ -396,8 +449,8 @@ export const startBugarHaid = async (req, res) => {
       return res.status(400).json({ message: `Durasi haid ${HAID_DURATION_MIN}–${HAID_DURATION_MAX} hari` });
     }
 
-    await applyHaidStart(prisma, req.employeeId, resolved, durationDays);
-    const profile = await loadSerializedProfile(prisma, req.employeeId);
+    await applyHaidStart(req.employeeId, resolved, durationDays);
+    const profile = await loadSerializedProfile(req.employeeId);
     return res.json({ profile });
   } catch (error) {
     console.error('[bugar] startBugarHaid', error);
@@ -407,32 +460,38 @@ export const startBugarHaid = async (req, res) => {
 
 export const respondBugarHaidFollowUp = async (req, res) => {
   try {
-    const prisma = getAloraMobilePrisma();
     const gender = await fetchEmployeeGender(req.employeeId);
     if (gender !== 'P') {
       return res.status(403).json({ message: 'Mode haid hanya untuk perempuan' });
     }
 
-    const existing = await prisma.trWorkerBugarProfile.findUnique({
-      where: { employeeId: req.employeeId },
-    });
-    if (!existing?.haidFollowUpPending) {
+    const existing = await findBugarProfile(req.employeeId);
+    if (!bool(existing?.haid_follow_up_pending)) {
       return res.status(400).json({ message: 'Tidak ada konfirmasi haid yang menunggu' });
     }
 
     const stillOnPeriod = req.body?.still_on_period === true;
 
     if (stillOnPeriod) {
-      const durationDays = existing.haidDurationDays ?? HAID_DEFAULT_DURATION_DAYS;
-      await applyHaidStart(prisma, req.employeeId, existing, durationDays);
+      const durationDays = existing.haid_duration_days ?? HAID_DEFAULT_DURATION_DAYS;
+      await applyHaidStart(req.employeeId, existing, durationDays);
     } else {
-      await prisma.trWorkerBugarProfile.update({
-        where: { employeeId: req.employeeId },
-        data: clearHaidFields(),
-      });
+      await aloraMobilePool.query(
+        `UPDATE tr_worker_bugar_profile SET
+          haid_active = 0,
+          haid_started_at = NULL,
+          haid_duration_days = NULL,
+          haid_ends_at = NULL,
+          haid_saved_goal_focus = NULL,
+          haid_saved_weekly_target_km = NULL,
+          haid_check_due_at = NULL,
+          haid_follow_up_pending = 0
+        WHERE employee_id = ?`,
+        [req.employeeId],
+      );
     }
 
-    const profile = await loadSerializedProfile(prisma, req.employeeId);
+    const profile = await loadSerializedProfile(req.employeeId);
     return res.json({ profile });
   } catch (error) {
     console.error('[bugar] respondBugarHaidFollowUp', error);
@@ -442,29 +501,22 @@ export const respondBugarHaidFollowUp = async (req, res) => {
 
 export const stopBugarHaid = async (req, res) => {
   try {
-    const prisma = getAloraMobilePrisma();
-    const existing = await prisma.trWorkerBugarProfile.findUnique({
-      where: { employeeId: req.employeeId },
-    });
-    if (!existing?.haidActive) {
+    const existing = await findBugarProfile(req.employeeId);
+    if (!bool(existing?.haid_active)) {
       return res.status(400).json({ message: 'Mode haid tidak aktif' });
     }
 
-    const restoredGoal = existing.haidSavedGoalFocus ?? existing.goalFocus;
-    const restoredTarget = existing.haidSavedWeeklyTargetKm != null
-      ? num(existing.haidSavedWeeklyTargetKm)
+    const restoredGoal = existing.haid_saved_goal_focus ?? existing.goal_focus;
+    const restoredTarget = existing.haid_saved_weekly_target_km != null
+      ? num(existing.haid_saved_weekly_target_km)
       : weeklyTargetKmForGoal(restoredGoal);
 
-    await prisma.trWorkerBugarProfile.update({
-      where: { employeeId: req.employeeId },
-      data: {
-        ...clearHaidFields(),
-        goalFocus: restoredGoal,
-        weeklyTargetKm: restoredTarget,
-      },
+    await clearHaidFields(req.employeeId, {
+      goal_focus: restoredGoal,
+      weekly_target_km: restoredTarget,
     });
 
-    const profile = await loadSerializedProfile(prisma, req.employeeId);
+    const profile = await loadSerializedProfile(req.employeeId);
     return res.json({ profile });
   } catch (error) {
     console.error('[bugar] stopBugarHaid', error);
@@ -474,21 +526,23 @@ export const stopBugarHaid = async (req, res) => {
 
 export const listBugarSessions = async (req, res) => {
   try {
-    const prisma = getAloraMobilePrisma();
     const sport = req.query.sport;
     if (sport && !SPORTS.includes(sport)) {
       return res.status(400).json({ message: 'Jenis olahraga tidak valid' });
     }
 
-    const rows = await prisma.trWorkerBugarSession.findMany({
-      where: {
-        employeeId: req.employeeId,
-        ...(sport ? { sport } : {}),
-      },
-      orderBy: { endedAt: 'desc' },
-      take: 50,
-    });
+    const params = [req.employeeId];
+    let sql = `
+      SELECT * FROM tr_worker_bugar_session
+      WHERE employee_id = ?
+    `;
+    if (sport) {
+      sql += ' AND sport = ?';
+      params.push(sport);
+    }
+    sql += ' ORDER BY ended_at DESC LIMIT 50';
 
+    const [rows] = await aloraMobilePool.query(sql, params);
     return res.json({ sessions: rows.map(serializeSession) });
   } catch (error) {
     console.error('[bugar] listBugarSessions', error);
@@ -498,7 +552,6 @@ export const listBugarSessions = async (req, res) => {
 
 export const createBugarSession = async (req, res) => {
   try {
-    const prisma = getAloraMobilePrisma();
     const body = req.body || {};
     const clientSessionId = String(body.client_session_id || '').trim();
     const sport = body.sport;
@@ -549,28 +602,24 @@ export const createBugarSession = async (req, res) => {
       stepSourceValue = stepSource;
     }
 
-    const profile = await prisma.trWorkerBugarProfile.findUnique({
-      where: { employeeId: req.employeeId },
-    });
-    if (!profile || !isBodyComplete(profile.heightCm, profile.weightKg)) {
+    const profile = await findBugarProfile(req.employeeId);
+    if (!profile || !isBodyComplete(profile.height_cm, profile.weight_kg)) {
       return res.status(400).json({ message: 'Lengkapi tinggi dan berat sebelum menyimpan sesi' });
     }
 
-    const resolvedProfile = await resolveHaidState(prisma, profile);
+    const resolvedProfile = await resolveHaidState(profile);
     const haidActiveNow = !!(
-      resolvedProfile.haidActive
-      && resolvedProfile.haidEndsAt
-      && Date.now() < new Date(resolvedProfile.haidEndsAt).getTime()
+      bool(resolvedProfile.haid_active)
+      && resolvedProfile.haid_ends_at
+      && Date.now() < new Date(resolvedProfile.haid_ends_at).getTime()
     );
     if (haidModeRequested && !haidActiveNow) {
       return res.status(400).json({ message: 'Mode haid tidak aktif' });
     }
 
-    const existing = await prisma.trWorkerBugarSession.findUnique({
-      where: { clientSessionId },
-    });
+    const existing = await findBugarSessionByClientId(clientSessionId);
     if (existing) {
-      if (existing.employeeId !== req.employeeId) {
+      if (existing.employee_id !== req.employeeId) {
         return res.status(409).json({ message: 'Sesi sudah tercatat pada akun lain' });
       }
       return res.json({ session: serializeSession(existing) });
@@ -582,33 +631,41 @@ export const createBugarSession = async (req, res) => {
       : null;
 
     try {
-      const row = await prisma.trWorkerBugarSession.create({
-        data: {
+      const [result] = await aloraMobilePool.query(
+        `INSERT INTO tr_worker_bugar_session (
+          client_session_id, employee_id, employee_name, sport, goal_focus,
+          started_at, ended_at, duration_sec, distance_km, calories,
+          avg_pace_or_speed, step_count, step_source, haid_mode, point_count, points_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
           clientSessionId,
-          employeeId: req.employeeId,
+          req.employeeId,
           employeeName,
           sport,
-          goalFocus: resolvedProfile.goalFocus,
-          startedAt: new Date(body.started_at),
-          endedAt: new Date(body.ended_at),
+          resolvedProfile.goal_focus,
+          new Date(body.started_at),
+          new Date(body.ended_at),
           durationSec,
           distanceKm,
-          calories: Math.round(calories),
+          Math.round(calories),
           avgPaceOrSpeed,
           stepCount,
-          stepSource: stepSourceValue,
-          haidMode: haidModeRequested && haidActiveNow,
-          pointCount: points.length,
-          pointsJson: points,
-        },
-      });
+          stepSourceValue,
+          haidModeRequested && haidActiveNow ? 1 : 0,
+          points.length,
+          JSON.stringify(points),
+        ],
+      );
+
+      const [[row]] = await aloraMobilePool.query(
+        'SELECT * FROM tr_worker_bugar_session WHERE id = ? LIMIT 1',
+        [result.insertId],
+      );
       return res.status(201).json({ session: serializeSession(row) });
     } catch (error) {
-      if (error.code === 'P2002') {
-        const again = await prisma.trWorkerBugarSession.findUnique({
-          where: { clientSessionId },
-        });
-        if (again && again.employeeId === req.employeeId) {
+      if (error.code === 'ER_DUP_ENTRY') {
+        const again = await findBugarSessionByClientId(clientSessionId);
+        if (again && again.employee_id === req.employeeId) {
           return res.json({ session: serializeSession(again) });
         }
         return res.status(409).json({ message: 'Sesi sudah tercatat pada akun lain' });
@@ -623,22 +680,23 @@ export const createBugarSession = async (req, res) => {
 
 export const getBugarStats = async (req, res) => {
   try {
-    const prisma = getAloraMobilePrisma();
     const sport = req.query.sport;
-    const where = {
-      employeeId: req.employeeId,
-      endedAt: { gte: weekStartDate() },
-    };
+    const start = weekStartDate();
+    const params = [req.employeeId, start];
+    let sql = `
+      SELECT * FROM tr_worker_bugar_session
+      WHERE employee_id = ? AND ended_at >= ?
+    `;
 
     if (sport && sport !== 'all') {
       if (!SPORTS.includes(sport)) {
         return res.status(400).json({ message: 'Jenis olahraga tidak valid' });
       }
-      where.sport = sport;
+      sql += ' AND sport = ?';
+      params.push(sport);
     }
 
-    const start = weekStartDate();
-    const sessions = await prisma.trWorkerBugarSession.findMany({ where });
+    const [sessions] = await aloraMobilePool.query(sql, params);
 
     const weekly = [0, 0, 0, 0, 0, 0, 0];
     let durationSec = 0;
@@ -646,12 +704,12 @@ export const getBugarStats = async (req, res) => {
     let totalKm = 0;
 
     for (const s of sessions) {
-      const ended = new Date(s.endedAt);
+      const ended = new Date(s.ended_at);
       if (ended < start) continue;
       const dayIndex = Math.floor((ended.getTime() - start.getTime()) / 86400000);
-      const km = num(s.distanceKm) || 0;
+      const km = num(s.distance_km) || 0;
       if (dayIndex >= 0 && dayIndex < 7) weekly[dayIndex] += km;
-      durationSec += s.durationSec;
+      durationSec += s.duration_sec;
       calories += s.calories;
       totalKm += km;
     }
@@ -673,40 +731,40 @@ export const getBugarStats = async (req, res) => {
 
 export const getBugarLeaderboard = async (req, res) => {
   try {
-    const prisma = getAloraMobilePrisma();
     const sortBy = req.query.sort === 'sessions' ? 'sessions' : 'km';
     const { year, month, key: monthKey } = parseMonthQuery(req.query.month);
     const { start, endExclusive } = monthBoundsWib(year, month);
 
-    const grouped = await prisma.trWorkerBugarSession.groupBy({
-      by: ['employeeId'],
-      where: {
-        endedAt: { gte: start, lt: endExclusive },
-      },
-      _sum: { distanceKm: true },
-      _count: { id: true },
-      _max: { endedAt: true },
-    });
+    const [grouped] = await aloraMobilePool.query(
+      `SELECT
+        s.employee_id,
+        COUNT(*) AS session_count,
+        SUM(s.distance_km) AS total_km,
+        MAX(s.ended_at) AS last_activity_at,
+        (
+          SELECT s2.employee_name
+          FROM tr_worker_bugar_session s2
+          WHERE s2.employee_id = s.employee_id
+          ORDER BY s2.ended_at DESC, s2.id DESC
+          LIMIT 1
+        ) AS employee_name
+      FROM tr_worker_bugar_session s
+      WHERE s.ended_at >= ? AND s.ended_at < ?
+      GROUP BY s.employee_id`,
+      [start, endExclusive],
+    );
 
-    const entries = [];
-    for (const g of grouped) {
-      const latest = await prisma.trWorkerBugarSession.findFirst({
-        where: { employeeId: g.employeeId, endedAt: g._max.endedAt },
-        orderBy: { id: 'desc' },
-        select: { employeeName: true },
-      });
-      entries.push({
-        employee_id: g.employeeId,
-        employee_name: latest?.employeeName || 'Pegawai',
-        total_km: Math.round((num(g._sum.distanceKm) || 0) * 1000) / 1000,
-        session_count: g._count.id,
-        last_activity_at: g._max.endedAt,
-      });
-    }
+    const entries = grouped.map((g) => ({
+      employee_id: g.employee_id,
+      employee_name: g.employee_name || 'Pegawai',
+      total_km: Math.round((num(g.total_km) || 0) * 1000) / 1000,
+      session_count: Number(g.session_count),
+      last_activity_at: g.last_activity_at,
+    }));
 
     const sorted = sortLeaderboard(entries, sortBy);
     const idx = sorted.findIndex((e) => e.employee_id === req.employeeId);
-    const availableMonths = await fetchAvailableMonthsWib(prisma);
+    const availableMonths = await fetchAvailableMonthsWib();
 
     return res.json({
       month: monthKey,
