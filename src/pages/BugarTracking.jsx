@@ -8,6 +8,7 @@ import ConfirmModal from '../components/ConfirmModal.jsx';
 import BugarTrackingMap from '../components/bugar/BugarTrackingMap.jsx';
 import { calcCalories, avgSpeedKmh, paceMinPerKm, formatPace, formatSpeed } from '../utils/bugarCalories.js';
 import { downsamplePoints } from '../utils/bugarGeo.js';
+import { rollingPaceMinPerKm, rollingSpeedKmh } from '../utils/bugarPace.js';
 import { estimateStepsFromDistance } from '../utils/bugarSteps.js';
 import { fmtTime } from '../utils/bugarFormat.js';
 import { clearBugarDraft, loadBugarDraft, saveBugarDraft } from '../utils/bugarDraft.js';
@@ -238,10 +239,14 @@ export default function BugarTracking() {
         haidMode: profile.haid_active === true,
       })
     : 0;
-  const speed = avgSpeedKmh(distanceKm, elapsedSec);
-  const pace = paceMinPerKm(distanceKm, elapsedSec);
+  const durationForAvg = movingDurationSec > 0 ? movingDurationSec : elapsedSec;
+  const avgPace = paceMinPerKm(distanceKm, durationForAvg);
+  const avgSpeed = avgSpeedKmh(distanceKm, durationForAvg);
+  const currentPace = isMoving ? rollingPaceMinPerKm(points) : 0;
+  const currentSpeed = isMoving ? rollingSpeedKmh(points) : 0;
   const metricLabel = sport === 'run' ? 'Pace' : 'Speed';
-  const metricValue = sport === 'run' ? formatPace(pace) : formatSpeed(speed);
+  const metricValue = sport === 'run' ? formatPace(currentPace) : formatSpeed(currentSpeed);
+  const avgMetricValue = sport === 'run' ? formatPace(avgPace) : formatSpeed(avgSpeed);
   const mapLocation = lastFix
     ? { lat: lastFix.lat, lng: lastFix.lng }
     : userLocation;
@@ -305,7 +310,12 @@ export default function BugarTracking() {
         duration_sec: durationSec,
         distance_km: Math.round(distanceKm * 100) / 100,
         calories,
-        avg_pace_or_speed: sport === 'run' ? paceMinPerKm(distanceKm, durationSec) : avgSpeedKmh(distanceKm, durationSec),
+        avg_pace_or_speed: (() => {
+          const durationForAvgSave = movingDurationSec > 0 ? movingDurationSec : durationSec;
+          return sport === 'run'
+            ? paceMinPerKm(distanceKm, durationForAvgSave)
+            : avgSpeedKmh(distanceKm, durationForAvgSave);
+        })(),
         points: downsamplePoints(points),
         employee_name: storedUser?.name || null,
       };
@@ -407,6 +417,9 @@ export default function BugarTracking() {
           <div className="bg-white rounded-[16px] border border-slate-200 p-3 text-center">
             <div className="text-[10px] text-slate-400 mb-1">{metricLabel}</div>
             <div className="text-[14px] font-extrabold text-navy-950">{metricValue}</div>
+            {distanceKm > 0 && (
+              <div className="text-[9px] text-slate-400 mt-0.5">Rata-rata {avgMetricValue}</div>
+            )}
           </div>
           {sport === 'run' && (
             <div className="bg-white rounded-[16px] border border-slate-200 p-3 text-center">
