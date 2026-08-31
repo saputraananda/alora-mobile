@@ -9,15 +9,13 @@ export default function SplashScreen({ onFinish }) {
   const [isFadingOut, setIsFadingOut] = useState(false);
 
   useEffect(() => {
-    // 2.0s: Start smooth shrink & fade-out animation
     const fadeTimer = setTimeout(() => {
       setIsFadingOut(true);
-    }, 2000);
+    }, 700);
 
-    // 2.8s: Notify parent to unmount splash screen
     const finishTimer = setTimeout(() => {
       if (onFinish) onFinish();
-    }, 2800);
+    }, 1100);
 
     return () => {
       clearTimeout(fadeTimer);

@@ -398,10 +398,22 @@ export const deleteCheckInPhoto = async (req, res) => {
     const existing = await getTodayRow(employeeId);
     requireTodayPhotoEdit(existing, today, 'clock_in', 'Absen masuk belum tercatat');
 
+    if (existing.clock_out) {
+      const error = new Error('Tidak dapat menghapus absen masuk setelah absen keluar');
+      error.statusCode = 409;
+      throw error;
+    }
+
     unlinkAttendancePhoto(employeeId, today, 'foto_masuk', existing.foto_masuk_path);
     await aloraMobilePool.query(
       `UPDATE tr_worker_attendance
-       SET foto_masuk_path = NULL, updated_at = NOW()
+       SET clock_in = NULL,
+           foto_masuk_path = NULL,
+           clock_in_latitude = NULL,
+           clock_in_longitude = NULL,
+           clock_in_location_name = NULL,
+           location_absen_id = NULL,
+           updated_at = NOW()
        WHERE id = ?`,
       [existing.id]
     );
@@ -410,7 +422,7 @@ export const deleteCheckInPhoto = async (req, res) => {
       [existing.id]
     );
     return res.status(200).json({
-      message: 'Foto masuk dihapus',
+      message: 'Absensi masuk dihapus. Silakan absen ulang.',
       attendance: serializeAttendance(updated),
     });
   } catch (error) {
@@ -431,7 +443,12 @@ export const deleteCheckOutPhoto = async (req, res) => {
     unlinkAttendancePhoto(employeeId, today, 'foto_keluar', existing.foto_keluar_path);
     await aloraMobilePool.query(
       `UPDATE tr_worker_attendance
-       SET foto_keluar_path = NULL, updated_at = NOW()
+       SET clock_out = NULL,
+           foto_keluar_path = NULL,
+           clock_out_latitude = NULL,
+           clock_out_longitude = NULL,
+           clock_out_location_name = NULL,
+           updated_at = NOW()
        WHERE id = ?`,
       [existing.id]
     );
@@ -440,7 +457,7 @@ export const deleteCheckOutPhoto = async (req, res) => {
       [existing.id]
     );
     return res.status(200).json({
-      message: 'Foto keluar dihapus',
+      message: 'Absensi keluar dihapus. Silakan absen ulang.',
       attendance: serializeAttendance(updated),
     });
   } catch (error) {

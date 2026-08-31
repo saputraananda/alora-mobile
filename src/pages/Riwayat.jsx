@@ -1119,9 +1119,9 @@ export default function Riwayat() {
         isOpen={Boolean(confirmDelete)}
         onClose={() => setConfirmDelete(null)}
         onConfirm={confirmDeletePhoto}
-        title={confirmDelete === 'out' ? 'Hapus foto keluar?' : 'Hapus foto masuk?'}
-        message="Jam absensi tetap tersimpan. File foto akan dihapus dari server."
-        confirmText="Hapus"
+        title={confirmDelete === 'out' ? 'Hapus absen keluar?' : 'Hapus absen masuk?'}
+        message="Data absen (jam, lokasi, dan foto) akan dihapus. Anda perlu absen ulang. Lanjutkan?"
+        confirmText="Ya, Hapus"
         cancelText="Batal"
       />
     </div>

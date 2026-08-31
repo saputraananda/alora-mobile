@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { 
   Info, 
@@ -17,6 +17,7 @@ import { FaRunning } from 'react-icons/fa';
 import aloraMobileLogo from '../assets/images/aloramobile-white.webp';
 import Modal from '../components/Modal.jsx';
 import { formatName } from '../utils/FormatName.js';
+import { relativeDateLabel } from '../utils/relativeDateLabel.js';
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 
 const homeApi = axios.create({ baseURL: '/api' });
@@ -26,9 +27,26 @@ homeApi.interceptors.request.use((config) => {
   return config;
 });
 
+const BROADCAST_TYPE_BADGE = {
+  info: 'Pengumuman Manajemen',
+  warning: 'Perhatian',
+  success: 'Event',
+  urgent: 'Penting',
+};
+
+function truncateText(text, max = 100) {
+  const s = String(text || '').trim();
+  if (s.length <= max) return s;
+  return `${s.slice(0, max).trimEnd()}…`;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export default function Home() {
   useDocumentTitle('Home');
   const navigate = useNavigate();
+  const location = useLocation();
+  const broadcastPollRef = useRef(null);
 
   const [userData, setUserData] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -37,6 +55,8 @@ export default function Home() {
   const [currentTime, setCurrentTime] = useState('');
   const [currentDateStr, setCurrentDateStr] = useState('');
   const [leaderRole, setLeaderRole] = useState(null);
+  const [broadcasts, setBroadcasts] = useState([]);
+  const [broadcastsLoading, setBroadcastsLoading] = useState(true);
 
   // Load authenticated user data
   useEffect(() => {
@@ -79,6 +99,84 @@ export default function Home() {
       .catch(() => setLeaderRole(null));
   }, []);
 
+  const loadBroadcasts = useCallback(async ({ retries = 2, delayMs = 1000, silent = false } = {}) => {
+    if (!silent) setBroadcastsLoading(true);
+
+    let attemptsLeft = retries + 1;
+    while (attemptsLeft > 0) {
+      try {
+        const r = await homeApi.get('/broadcast');
+        setBroadcasts(r.data?.data?.broadcasts || []);
+        if (!silent) setBroadcastsLoading(false);
+        return;
+      } catch (err) {
+        attemptsLeft -= 1;
+        if (attemptsLeft === 0) {
+          console.warn('[Home] broadcast fetch failed', err);
+          setBroadcasts([]);
+          if (!silent) setBroadcastsLoading(false);
+          return;
+        }
+        await sleep(delayMs);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    loadBroadcasts();
+
+    const refreshInterval = setInterval(
+      () => loadBroadcasts({ retries: 1, delayMs: 0, silent: true }),
+      5 * 60 * 1000,
+    );
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadBroadcasts({ retries: 1, delayMs: 0, silent: true });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      clearInterval(refreshInterval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [loadBroadcasts]);
+
+  // Retry while empty (cold-start API / HMR preserved empty state)
+  useEffect(() => {
+    if (broadcastPollRef.current) {
+      clearInterval(broadcastPollRef.current);
+      broadcastPollRef.current = null;
+    }
+
+    if (broadcasts.length > 0 || broadcastsLoading) return undefined;
+
+    let attempts = 0;
+    broadcastPollRef.current = setInterval(() => {
+      attempts += 1;
+      if (attempts > 8) {
+        clearInterval(broadcastPollRef.current);
+        broadcastPollRef.current = null;
+        return;
+      }
+      loadBroadcasts({ retries: 1, delayMs: 0, silent: true });
+    }, 15000);
+
+    return () => {
+      if (broadcastPollRef.current) {
+        clearInterval(broadcastPollRef.current);
+        broadcastPollRef.current = null;
+      }
+    };
+  }, [broadcasts.length, broadcastsLoading, loadBroadcasts]);
+
+  useEffect(() => {
+    if (location.pathname === '/') {
+      loadBroadcasts({ retries: 2, delayMs: 1000, silent: true });
+    }
+  }, [location.pathname, loadBroadcasts]);
+
   // Greeting based on current time
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -99,6 +197,8 @@ export default function Home() {
       navigate('/riwayat');
     } else if (item.id === 'perizinan') {
       navigate('/perizinan');
+    } else if (item.id === 'lemburro') {
+      navigate('/lembur-ro');
     } else if (item.id === 'alorabugar') {
       navigate('/bugar');
     } else {
@@ -110,6 +210,8 @@ export default function Home() {
   const formattedUserName = rawUserName ? formatName(rawUserName) : "Pengguna Alora";
   const employeeCode = userData?.employee_code || "";
   const jobLevel = userData?.job_level || "Karyawan";
+  const topBroadcast = broadcasts[0] || null;
+  const infoCount = 2 + (topBroadcast ? 1 : 0);
 
   const menuItems = [
     {
@@ -135,6 +237,14 @@ export default function Home() {
       icon: <FileText className="w-5 h-5 text-amber-600" />,
       badgeColor: 'bg-amber-50 border-amber-200/80',
       modalDesc: 'Pengajuan Cuti Tahunan, Surat Sakit, dan Izin Meninggalkan Pekerjaan.'
+    },
+    {
+      id: 'lemburro',
+      title: 'Lembur & RO',
+      subtitle: 'Pengajuan lembur & libur',
+      icon: <Clock className="w-5 h-5 text-violet-600" />,
+      badgeColor: 'bg-violet-50 border-violet-200/80',
+      modalDesc: 'Pengajuan lembur dan replace off (RO) dengan approval supervisor.'
     },
     {
       id: 'slipgaji',
@@ -211,13 +321,13 @@ export default function Home() {
           </div>
 
           {/* Alora Mobile Brand Logo Image & Typography */}
-          <div className="flex flex-col items-center justify-end pb-0 pt-2 flex-shrink-0">
+          <div className="flex flex-col items-center justify-end gap-1 pb-0 pt-2 flex-shrink-0">
             <img
               src={aloraMobileLogo}
               alt="Alora Mobile Logo"
               className="w-16 sm:w-20 h-auto object-contain drop-shadow-md"
             />
-            <span className="font-['Outfit'] font-extrabold text-[11px] sm:text-[12px] tracking-wider text-white drop-shadow-sm -mt-2.5 sm:-mt-3">
+            <span className="font-['Outfit'] font-extrabold text-[11px] sm:text-[12px] tracking-wider text-white drop-shadow-sm">
               Alora Mobile
             </span>
           </div>
@@ -235,7 +345,7 @@ export default function Home() {
           </div>
 
           {/* 4 COLUMNS SINGLE ROW GRID CONTAINER */}
-          <div className="bg-white rounded-[26px] p-4 shadow-[0_4px_24px_rgb(0,0,0,0.04)] border border-slate-200/80 grid grid-cols-4 gap-x-1.5">
+          <div className="bg-white rounded-[26px] p-4 shadow-[0_4px_24px_rgb(0,0,0,0.04)] border border-slate-200/80 grid grid-cols-4 gap-x-1.5 gap-y-4">
             {menuItems.map((item) => (
               <div
                 key={item.id}
@@ -282,7 +392,7 @@ export default function Home() {
               INFORMASI & AKTIVITAS
             </h3>
             <span className="text-[10px] font-bold text-slate-400">
-              3 Info Terbaru
+              {infoCount} Info Terbaru
             </span>
           </div>
 
@@ -341,32 +451,34 @@ export default function Home() {
               </div>
             </div>
 
-            {/* INFO CARD 3: PENGUMUMAN INFORMASI */}
-            <div 
-              onClick={() => openMenuModal('Detail Informasi', 'Pelaksanaan briefing bulanan koordinasi tim Alora Mobile.')}
-              className="bg-white rounded-[22px] p-4 border border-slate-200/80 shadow-sm flex items-start gap-3.5 cursor-pointer hover:border-purple-300 transition group"
-            >
-              <div className="w-10 h-10 rounded-[14px] bg-purple-50 text-purple-600 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <Megaphone className="w-5 h-5" />
-              </div>
-              <div className="flex flex-col flex-grow">
-                <div className="flex items-center justify-between gap-2">
-                  <h4 className="text-xs font-extrabold text-navy-950">
-                    Briefing Bulanan Team Alora
-                  </h4>
-                  <span className="text-[10px] text-slate-400 font-semibold">
-                    Kemarin
-                  </span>
+            {/* INFO CARD 3: PENGUMUMAN (dari SuperApp broadcast) */}
+            {!broadcastsLoading && topBroadcast && (
+              <div 
+                onClick={() => openMenuModal(topBroadcast.title, topBroadcast.description)}
+                className="bg-white rounded-[22px] p-4 border border-slate-200/80 shadow-sm flex items-start gap-3.5 cursor-pointer hover:border-purple-300 transition group"
+              >
+                <div className="w-10 h-10 rounded-[14px] bg-purple-50 text-purple-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <Megaphone className="w-5 h-5" />
                 </div>
-                <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
-                  Rapat koordinasi dan evaluasi kerja bulanan hari Jumat pukul 14:00 WIB.
-                </p>
-                <div className="flex items-center gap-1 text-[10px] font-bold text-purple-600 mt-2">
-                  <Bell className="w-3.5 h-3.5" />
-                  <span>Pengumuman Manajemen</span>
+                <div className="flex flex-col flex-grow">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-xs font-extrabold text-navy-950">
+                      {topBroadcast.title}
+                    </h4>
+                    <span className="text-[10px] text-slate-400 font-semibold">
+                      {relativeDateLabel(topBroadcast.created_at)}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
+                    {truncateText(topBroadcast.description, 100)}
+                  </p>
+                  <div className="flex items-center gap-1 text-[10px] font-bold text-purple-600 mt-2">
+                    <Bell className="w-3.5 h-3.5" />
+                    <span>{BROADCAST_TYPE_BADGE[topBroadcast.type] || BROADCAST_TYPE_BADGE.info}</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </main>

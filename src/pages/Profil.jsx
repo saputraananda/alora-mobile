@@ -567,6 +567,7 @@ export default function Profile() {
       />
 
       {/* ===== FACE SCAN MODAL ===== */}
+      {faceScanOpen && (
       <FaceScanModal
         open={faceScanOpen}
         mode="manual"
@@ -578,6 +579,7 @@ export default function Profile() {
         busy={biometricLoading}
         busyLabel="Menyimpan wajah..."
       />
+      )}
 
       {/* ===== BIOMETRIC INFORMATION MODAL ===== */}
       <Modal

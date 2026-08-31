@@ -423,6 +423,7 @@ export default function Login({ onLoginSuccess }) {
 
 
 
+      {faceScanOpen && (
       <FaceScanModal
         open={faceScanOpen}
         mode="autoLogin"
@@ -432,6 +433,7 @@ export default function Login({ onLoginSuccess }) {
         busy={faceLoading}
         busyLabel="Memverifikasi wajah..."
       />
+      )}
 
 
 

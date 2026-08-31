@@ -7,6 +7,8 @@ import leaveRoutes from './routes/leave.routes.js';
 import attendanceRoutes from './routes/attendance.routes.js';
 import managementAttendanceRoutes from './routes/managementAttendance.routes.js';
 import bugarRoutes from './routes/bugar.routes.js';
+import broadcastRoutes from './routes/broadcast.routes.js';
+import lemburRoRoutes from './routes/lemburRo.routes.js';
 
 dotenv.config();
 
@@ -23,6 +25,8 @@ app.use('/api/leave', leaveRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/management-attendance', managementAttendanceRoutes);
 app.use('/api/bugar', bugarRoutes);
+app.use('/api/broadcast', broadcastRoutes);
+app.use('/api/lembur-ro', lemburRoRoutes);
 
 // Health check endpoint
 app.get('/api', (req, res) => {
