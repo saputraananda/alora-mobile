@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, FileText, Plus } from 'lucide-react';
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
+import { countLeaveDaysClient } from '../utils/countLeaveDays.js';
 
 const api = axios.create({
   baseURL: '/api',
@@ -217,6 +218,9 @@ export default function Perizinan() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
 
+  const [annualBalance, setAnnualBalance] = useState(null);
+  const [loadingAnnualBalance, setLoadingAnnualBalance] = useState(false);
+
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelling, setCancelling] = useState(false);
 
@@ -267,6 +271,39 @@ export default function Perizinan() {
   useEffect(() => {
     if (durationType !== 'full_day') setEndDate(startDate);
   }, [durationType, startDate]);
+
+  const fetchAnnualBalance = useCallback(async () => {
+    setLoadingAnnualBalance(true);
+    try {
+      const params = {};
+      if (leaveType === 'cuti') {
+        params.preview_start = startDate;
+        params.preview_end = endDate;
+        params.duration_type = durationType;
+      }
+      const { data } = await api.get('/leave/annual-balance', { params });
+      setAnnualBalance(data);
+    } catch {
+      setAnnualBalance(null);
+    } finally {
+      setLoadingAnnualBalance(false);
+    }
+  }, [leaveType, startDate, endDate, durationType]);
+
+  useEffect(() => {
+    if (formOpen && leaveType === 'cuti') {
+      fetchAnnualBalance();
+    } else if (!formOpen) {
+      setAnnualBalance(null);
+    }
+  }, [formOpen, leaveType, fetchAnnualBalance]);
+
+  const previewLeaveDays = useMemo(() => {
+    if (leaveType !== 'cuti') return 0;
+    return countLeaveDaysClient({ startDate, endDate, durationType });
+  }, [leaveType, startDate, endDate, durationType]);
+
+  const cutiSubmitBlocked = leaveType === 'cuti' && annualBalance && !annualBalance.eligible;
 
   useEffect(() => {
     let revoked = false;
@@ -348,6 +385,10 @@ export default function Perizinan() {
     }
     if (leaveType === 'sakit' && !doctorFile && !editTarget?.doctor_note_file) {
       setSubmitError('Foto surat dokter wajib dilampirkan untuk izin sakit.');
+      return;
+    }
+    if (cutiSubmitBlocked) {
+      setSubmitError('Cuti tahunan tersedia setelah 1 tahun kerja.');
       return;
     }
 
@@ -607,6 +648,44 @@ export default function Perizinan() {
                 </div>
               </div>
 
+              {leaveType === 'cuti' && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 space-y-1">
+                  {loadingAnnualBalance ? (
+                    <p className="text-[12px] text-emerald-700">Memuat saldo cuti…</p>
+                  ) : annualBalance?.eligible ? (
+                    <>
+                      <p className="text-[13px] font-bold text-emerald-800">
+                        Saldo cuti tahunan: {annualBalance.balance_days} hari
+                      </p>
+                      <p className="text-[11px] text-emerald-700">
+                        Siklus {formatDateID(annualBalance.cycle_start)} – {formatDateID(annualBalance.cycle_end)}
+                      </p>
+                      {previewLeaveDays > 0 && (
+                        <p className="text-[11px] text-emerald-600">
+                          Pengajuan ini: ~{previewLeaveDays} hari kerja (estimasi, Minggu dikecualikan)
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[13px] font-bold text-amber-800">
+                        Cuti tahunan tersedia setelah 1 tahun kerja
+                      </p>
+                      {annualBalance?.join_date && (
+                        <p className="text-[11px] text-amber-700">
+                          Tanggal masuk: {formatDateID(annualBalance.join_date)}
+                        </p>
+                      )}
+                      {annualBalance?.next_anniversary && (
+                        <p className="text-[11px] text-amber-700">
+                          Berhak cuti dari: {formatDateID(annualBalance.next_anniversary)}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">
@@ -684,7 +763,7 @@ export default function Perizinan() {
 
               <button
                 type="submit"
-                disabled={submitting}
+                disabled={submitting || cutiSubmitBlocked}
                 className="w-full py-3 rounded-[16px] bg-navy-950 text-white text-[13.5px] font-bold disabled:opacity-60"
               >
                 {submitting ? 'Mengirim…' : editTarget ? 'Simpan Perubahan' : 'Kirim Pengajuan'}

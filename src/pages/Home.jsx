@@ -198,7 +198,7 @@ export default function Home() {
     } else if (item.id === 'perizinan') {
       navigate('/perizinan');
     } else if (item.id === 'lemburro') {
-      navigate('/lembur-ro');
+      navigate('/riwayat?panel=sessions');
     } else if (item.id === 'alorabugar') {
       navigate('/bugar');
     } else {
@@ -241,7 +241,7 @@ export default function Home() {
     {
       id: 'lemburro',
       title: 'Lembur & RO',
-      subtitle: 'Pengajuan lembur & libur',
+      subtitle: 'Lembur & RO di Riwayat',
       icon: <Clock className="w-5 h-5 text-violet-600" />,
       badgeColor: 'bg-violet-50 border-violet-200/80',
       modalDesc: 'Pengajuan lembur dan replace off (RO) dengan approval supervisor.'

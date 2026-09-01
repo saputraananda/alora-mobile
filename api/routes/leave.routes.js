@@ -6,6 +6,7 @@ import {
   getLeaveList,
   getLeaveYears,
   getLeaveStats,
+  getAnnualLeaveBalanceHandler,
   submitLeave,
   updateLeave,
   cancelLeave,
@@ -34,6 +35,7 @@ router.use(requireEmployee);
 router.get('/today', getTodayLeave);
 router.get('/years', getLeaveYears);
 router.get('/stats', getLeaveStats);
+router.get('/annual-balance', getAnnualLeaveBalanceHandler);
 router.get('/list', getLeaveList);
 router.post('/', handleUpload, submitLeave);
 router.put('/:id', handleUpload, updateLeave);

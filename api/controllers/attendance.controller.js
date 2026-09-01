@@ -4,6 +4,13 @@ import multer from 'multer';
 import sharp from 'sharp';
 import { aloraMobilePool } from '../db/pool.js';
 import { getBaseUploadDir } from '../middleware/upload.js';
+import {
+  computeLateMinutesFromClockIn,
+  getLateToleranceDateTime,
+  todayDateStringJakarta,
+} from '../utils/workScheduleRules.js';
+import { getOvertimeBalance, getReplaceOffBalance } from '../utils/ledgerService.js';
+import { getEmployeeDayContext, getEmployeeMonthFinalStatuses } from '../utils/attendanceStatusResolver.js';
 
 const HO_LOCATION_CODE = 'HO-ALR';
 const ABSEN_RADIUS_KM = 2;
@@ -26,10 +33,7 @@ export const fotoMasukUploadMiddleware = upload.single('foto_masuk');
 export const fotoKeluarUploadMiddleware = upload.single('foto_keluar');
 
 function todayDateString() {
-  const now = new Date();
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const jakarta = new Date(utc + 7 * 60 * 60000);
-  return jakarta.toISOString().slice(0, 10);
+  return todayDateStringJakarta();
 }
 
 function toDateOnly(value) {
@@ -70,6 +74,8 @@ function serializeAttendance(row) {
   return {
     ...row,
     attendance_date: toDateOnly(row.attendance_date),
+    clock_in_inside_radius: row.clock_in_inside_radius != null ? Boolean(row.clock_in_inside_radius) : null,
+    clock_out_inside_radius: row.clock_out_inside_radius != null ? Boolean(row.clock_out_inside_radius) : null,
   };
 }
 
@@ -132,6 +138,40 @@ async function resolvePunchLocation(latitude, longitude) {
   const locationName = insideRadius ? INSIDE_LOCATION_LABEL : OUTSIDE_LOCATION_LABEL;
 
   return { office, lat, lng, locationName, insideRadius };
+}
+
+function parseLateFields(body) {
+  const lateCategory = String(body.late_category || '').trim().toLowerCase();
+  const lateReason = String(body.late_reason || '').trim().slice(0, 1000);
+  return { lateCategory, lateReason };
+}
+
+async function validateAndBuildLateFields(today, lateCategory, lateReason) {
+  const tolerance = await getLateToleranceDateTime(today);
+  const now = new Date();
+  const lateMinutes = computeLateMinutesFromClockIn(now, today, tolerance);
+
+  if (lateMinutes <= 0) {
+    return { lateMinutes: 0, lateCategory: null, lateReason: null, lateStatus: null };
+  }
+
+  if (lateCategory !== 'planned' && lateCategory !== 'unexpected') {
+    const error = new Error('Clock in terlambat — pilih kategori Planned Late atau Unexpected Late');
+    error.statusCode = 422;
+    throw error;
+  }
+  if (!lateReason) {
+    const error = new Error('Alasan keterlambatan wajib diisi');
+    error.statusCode = 422;
+    throw error;
+  }
+
+  return {
+    lateMinutes,
+    lateCategory,
+    lateReason,
+    lateStatus: lateCategory === 'planned' ? 'Pending_Supervisor' : null,
+  };
 }
 
 async function compressToJpg(buffer) {
@@ -221,7 +261,9 @@ export const getMonthAttendance = async (req, res) => {
   try {
     const [rows] = await aloraMobilePool.query(
       `SELECT attendance_date, clock_in, clock_out, foto_masuk_path, foto_keluar_path,
-              clock_in_location_name, clock_out_location_name
+              clock_in_location_name, clock_out_location_name,
+              late_category, late_reason, late_minutes, late_status,
+              clock_in_inside_radius, clock_out_inside_radius
        FROM tr_worker_attendance
        WHERE employee_id = ?
          AND attendance_date >= ?
@@ -230,12 +272,60 @@ export const getMonthAttendance = async (req, res) => {
       [req.employeeId, start, end]
     );
 
+    const finalStatuses = await getEmployeeMonthFinalStatuses(req.employeeId, start, end);
+
     return res.json({
-      items: rows.map(serializeAttendance),
+      items: rows.map((row) => {
+        const dateKey = toDateOnly(row.attendance_date);
+        return {
+          ...serializeAttendance(row),
+          final_status: finalStatuses[dateKey] || null,
+        };
+      }),
     });
   } catch (error) {
     console.error('[attendance] getMonthAttendance', error);
     return res.status(500).json({ message: 'Gagal mengambil absensi bulan ini' });
+  }
+};
+
+export const getAttendanceBalances = async (req, res) => {
+  try {
+    const overtimeHours = await getOvertimeBalance(req.employeeId);
+    const replaceOffHours = await getReplaceOffBalance(req.employeeId);
+    return res.json({
+      overtime_hours: overtimeHours,
+      replace_off_hours: replaceOffHours,
+    });
+  } catch (error) {
+    console.error('[attendance] getAttendanceBalances', error);
+    return res.status(500).json({ message: 'Gagal mengambil saldo' });
+  }
+};
+
+export const getDayContext = async (req, res) => {
+  const today = todayDateString();
+  try {
+    const ctx = await getEmployeeDayContext(req.employeeId, today);
+    const [[activeSession]] = await aloraMobilePool.query(
+      `SELECT id, session_type, status, clock_in, work_date
+       FROM tr_attendance_sessions
+       WHERE employee_id = ? AND work_date = ? AND status = 'in_progress'
+       LIMIT 1`,
+      [req.employeeId, today]
+    );
+    const tolerance = await getLateToleranceDateTime(today);
+    return res.json({
+      date: today,
+      attendance: serializeAttendance(ctx.attendance),
+      is_off_day: ctx.is_off_day,
+      final_status: ctx.final_status,
+      active_session: activeSession || null,
+      late_tolerance_iso: tolerance.toISOString(),
+    });
+  } catch (error) {
+    console.error('[attendance] getDayContext', error);
+    return res.status(500).json({ message: 'Gagal mengambil konteks hari ini' });
   }
 };
 
@@ -280,6 +370,9 @@ export const checkInAttendance = async (req, res) => {
       return res.status(422).json({ message: 'Foto masuk wajib dilampirkan' });
     }
 
+    const { lateCategory, lateReason } = parseLateFields(req.body);
+    const lateFields = await validateAndBuildLateFields(today, lateCategory, lateReason);
+
     const { office, lat, lng, locationName, insideRadius } = await resolvePunchLocation(
       req.body.latitude,
       req.body.longitude
@@ -293,13 +386,20 @@ export const checkInAttendance = async (req, res) => {
 
     const saved = await savePhoto(employeeId, today, 'foto_masuk', req.file);
 
+    const insertCols = `employee_id, attendance_date, clock_in, foto_masuk_path,
+            clock_in_latitude, clock_in_longitude, clock_in_location_name, location_absen_id,
+            clock_in_inside_radius, late_category, late_reason, late_minutes, late_status`;
+    const insertVals = `?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`;
+    const params = [
+      employeeId, today, saved.path, lat, lng, locationName, locationAbsenId,
+      insideRadius ? 1 : 0,
+      lateFields.lateCategory, lateFields.lateReason, lateFields.lateMinutes || null, lateFields.lateStatus,
+    ];
+
     if (!existing) {
       const [result] = await aloraMobilePool.query(
-        `INSERT INTO tr_worker_attendance
-           (employee_id, attendance_date, clock_in, foto_masuk_path,
-            clock_in_latitude, clock_in_longitude, clock_in_location_name, location_absen_id)
-         VALUES (?, ?, NOW(), ?, ?, ?, ?, ?)`,
-        [employeeId, today, saved.path, lat, lng, locationName, locationAbsenId]
+        `INSERT INTO tr_worker_attendance (${insertCols}) VALUES (${insertVals})`,
+        params
       );
       const [[inserted]] = await aloraMobilePool.query(
         'SELECT * FROM tr_worker_attendance WHERE id = ?',
@@ -319,9 +419,18 @@ export const checkInAttendance = async (req, res) => {
            clock_in_longitude = ?,
            clock_in_location_name = ?,
            location_absen_id = ?,
+           clock_in_inside_radius = ?,
+           late_category = ?,
+           late_reason = ?,
+           late_minutes = ?,
+           late_status = ?,
            updated_at = NOW()
        WHERE id = ?`,
-      [saved.path, lat, lng, locationName, locationAbsenId, existing.id]
+      [
+        saved.path, lat, lng, locationName, locationAbsenId, insideRadius ? 1 : 0,
+        lateFields.lateCategory, lateFields.lateReason, lateFields.lateMinutes || null, lateFields.lateStatus,
+        existing.id,
+      ]
     );
     const [[updated]] = await aloraMobilePool.query(
       'SELECT * FROM tr_worker_attendance WHERE id = ?',
@@ -349,7 +458,7 @@ export const checkOutAttendance = async (req, res) => {
       return res.status(422).json({ message: 'Foto keluar wajib dilampirkan' });
     }
 
-    const { lat, lng, locationName } = await resolvePunchLocation(
+    const { lat, lng, locationName, insideRadius } = await resolvePunchLocation(
       req.body.latitude,
       req.body.longitude
     );
@@ -371,9 +480,10 @@ export const checkOutAttendance = async (req, res) => {
            clock_out_latitude = ?,
            clock_out_longitude = ?,
            clock_out_location_name = ?,
+           clock_out_inside_radius = ?,
            updated_at = NOW()
        WHERE id = ?`,
-      [saved.path, lat, lng, locationName, existing.id]
+      [saved.path, lat, lng, locationName, insideRadius ? 1 : 0, existing.id]
     );
     const [[updated]] = await aloraMobilePool.query(
       'SELECT * FROM tr_worker_attendance WHERE id = ?',
@@ -413,6 +523,11 @@ export const deleteCheckInPhoto = async (req, res) => {
            clock_in_longitude = NULL,
            clock_in_location_name = NULL,
            location_absen_id = NULL,
+           clock_in_inside_radius = NULL,
+           late_category = NULL,
+           late_reason = NULL,
+           late_minutes = NULL,
+           late_status = NULL,
            updated_at = NOW()
        WHERE id = ?`,
       [existing.id]
@@ -448,6 +563,7 @@ export const deleteCheckOutPhoto = async (req, res) => {
            clock_out_latitude = NULL,
            clock_out_longitude = NULL,
            clock_out_location_name = NULL,
+           clock_out_inside_radius = NULL,
            updated_at = NOW()
        WHERE id = ?`,
       [existing.id]

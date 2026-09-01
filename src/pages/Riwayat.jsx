@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
+import { useSearchParams } from 'react-router-dom';
 import {
   CalendarDays,
   ChevronLeft,
@@ -14,6 +15,8 @@ import { formatName } from '../utils/FormatName.js';
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 import MobileCameraCapture from '../components/MobileCameraCapture.jsx';
 import ConfirmModal from '../components/ConfirmModal.jsx';
+import LateCheckInModal from '../components/LateCheckInModal.jsx';
+import SessionTodoModal from '../components/SessionTodoModal.jsx';
 import {
   INSIDE_LOCATION_LABEL,
   OUTSIDE_LOCATION_LABEL,
@@ -123,6 +126,18 @@ export default function Riwayat() {
   const [tempPickerMonth, setTempPickerMonth] = useState(now.getMonth());
   const [tempPickerYear, setTempPickerYear] = useState(now.getFullYear());
   const [todayLeave, setTodayLeave] = useState(null);
+  const [searchParams] = useSearchParams();
+  const showSessionsPanel = searchParams.get('panel') === 'sessions';
+  const [dayContext, setDayContext] = useState(null);
+  const [balances, setBalances] = useState({ overtime_hours: 0, replace_off_hours: 0 });
+  const [showLateModal, setShowLateModal] = useState(false);
+  const [lateModalError, setLateModalError] = useState('');
+  const [pendingSessionFile, setPendingSessionFile] = useState(null);
+  const [pendingSessionMeta, setPendingSessionMeta] = useState(null);
+  const [sessionTodoTarget, setSessionTodoTarget] = useState(null);
+  const [earnedRoReason, setEarnedRoReason] = useState('');
+  const [sessionError, setSessionError] = useState('');
+  const [sessionLoading, setSessionLoading] = useState(false);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('alora_user') || sessionStorage.getItem('alora_user');
@@ -199,6 +214,29 @@ export default function Riwayat() {
     };
     loadTodayLeave();
   }, []);
+
+  const fetchDayContext = useCallback(async () => {
+    try {
+      const { data } = await api.get('/attendance/day-context');
+      setDayContext(data);
+    } catch {
+      setDayContext(null);
+    }
+  }, []);
+
+  const fetchBalances = useCallback(async () => {
+    try {
+      const { data } = await api.get('/attendance/balances');
+      setBalances(data);
+    } catch {
+      setBalances({ overtime_hours: 0, replace_off_hours: 0 });
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDayContext();
+    fetchBalances();
+  }, [fetchDayContext, fetchBalances]);
 
   useEffect(() => {
     if (calMonth === now.getMonth() && calYear === now.getFullYear()) {
@@ -340,7 +378,7 @@ export default function Riwayat() {
     };
   }, []);
 
-  const submitPunch = async (action) => {
+  const submitPunch = async (action, lateFields = null) => {
     const file = action === 'in' ? pendingInFile : pendingOutFile;
     const meta = action === 'in' ? pendingInMeta : pendingOutMeta;
     if (!file || meta?.latitude == null || meta?.longitude == null) {
@@ -348,13 +386,27 @@ export default function Riwayat() {
       return;
     }
 
+    if (action === 'in' && !lateFields && dayContext?.late_tolerance_iso) {
+      const isLate = Date.now() > new Date(dayContext.late_tolerance_iso).getTime();
+      if (isLate) {
+        setLateModalError('');
+        setShowLateModal(true);
+        return;
+      }
+    }
+
     const formData = new FormData();
     formData.append(action === 'in' ? 'foto_masuk' : 'foto_keluar', file);
     formData.append('latitude', String(meta.latitude));
     formData.append('longitude', String(meta.longitude));
+    if (lateFields) {
+      formData.append('late_category', lateFields.late_category);
+      formData.append('late_reason', lateFields.late_reason);
+    }
 
     setActionLoading(true);
     setActionError('');
+    setLateModalError('');
     try {
       if (action === 'in') {
         await api.post('/attendance/check-in', formData);
@@ -364,17 +416,99 @@ export default function Riwayat() {
         clearPendingOut();
       }
       await fetchMonth();
+      await fetchDayContext();
       setLiveLocationLabel('');
+      setShowLateModal(false);
     } catch (err) {
-      setActionError(err.response?.data?.message || 'Gagal mengirim absensi.');
+      const msg = err.response?.data?.message || 'Gagal mengirim absensi.';
+      setActionError(msg);
+      if (err.response?.status === 422 && action === 'in') {
+        setLateModalError(msg);
+        setShowLateModal(true);
+      }
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleLateModalSubmit = (fields) => {
+    submitPunch('in', fields);
+  };
+
+  const submitSessionCheckIn = async (sessionType, file, meta, reason = '') => {
+    const formData = new FormData();
+    formData.append('foto_masuk', file);
+    formData.append('latitude', String(meta.latitude));
+    formData.append('longitude', String(meta.longitude));
+    if (reason) formData.append('reason', reason);
+
+    setSessionLoading(true);
+    setSessionError('');
+    try {
+      const path = sessionType === 'lembur'
+        ? '/attendance-sessions/lembur/check-in'
+        : '/attendance-sessions/earned-ro/check-in';
+      await api.post(path, formData);
+      await fetchDayContext();
+      setEarnedRoReason('');
+    } catch (err) {
+      setSessionError(err.response?.data?.message || 'Gagal clock in sesi');
+    } finally {
+      setSessionLoading(false);
+    }
+  };
+
+  const submitSessionCheckOut = async (sessionType, file, meta, todoItems) => {
+    const formData = new FormData();
+    formData.append('foto_keluar', file);
+    formData.append('latitude', String(meta.latitude));
+    formData.append('longitude', String(meta.longitude));
+    formData.append('todo_items', JSON.stringify(todoItems));
+
+    setSessionLoading(true);
+    setSessionError('');
+    try {
+      const path = sessionType === 'lembur'
+        ? '/attendance-sessions/lembur/check-out'
+        : '/attendance-sessions/earned-ro/check-out';
+      await api.post(path, formData);
+      await fetchDayContext();
+      await fetchBalances();
+      setSessionTodoTarget(null);
+    } catch (err) {
+      setSessionError(err.response?.data?.message || 'Gagal clock out sesi');
+    } finally {
+      setSessionLoading(false);
     }
   };
 
   const handleCameraCapture = (file, meta) => {
     const key = cameraTarget?.key;
     setCameraTarget(null);
+
+    if (key === 'session_lembur_in' || key === 'session_earned_ro_in') {
+      const sessionType = key === 'session_lembur_in' ? 'lembur' : 'earned_replace_off';
+      if (!file) return;
+      if (sessionType === 'earned_replace_off' && !earnedRoReason.trim()) {
+        setSessionError('Isi alasan bekerja di hari libur terlebih dahulu');
+        return;
+      }
+      submitSessionCheckIn(
+        sessionType === 'lembur' ? 'lembur' : 'earned-ro',
+        file,
+        meta,
+        earnedRoReason
+      );
+      return;
+    }
+
+    if (key === 'session_lembur_out' || key === 'session_earned_ro_out') {
+      setPendingSessionFile(file || null);
+      setPendingSessionMeta(meta || null);
+      setSessionTodoTarget(key === 'session_lembur_out' ? 'lembur' : 'earned_replace_off');
+      return;
+    }
+
     if (key === 'check_out_photo') {
       setPendingOutFile(file || null);
       setPendingOutMeta(meta || null);
@@ -475,6 +609,18 @@ export default function Riwayat() {
   const isLockedByLeave = Boolean(todayLeave && todayLeave.duration_type === 'full_day');
   const canCheckIn = selectedIsToday && !selectedRecord?.clockIn && !isLockedByLeave;
   const canCheckOut = selectedIsToday && selectedRecord?.clockIn && !selectedRecord?.clockOut && !isLockedByLeave;
+  const activeSession = dayContext?.active_session || null;
+  const canStartLembur = selectedIsToday && selectedRecord?.clockOut && !activeSession && !dayContext?.is_off_day;
+  const canStartEarnedRo = selectedIsToday && dayContext?.is_off_day && !activeSession;
+  const canSessionCheckOut = selectedIsToday && activeSession?.status === 'in_progress';
+
+  const handleSessionTodoSubmit = ({ todo_items }) => {
+    if (!pendingSessionFile || !pendingSessionMeta) return;
+    const apiType = sessionTodoTarget === 'lembur' ? 'lembur' : 'earned-ro';
+    submitSessionCheckOut(apiType, pendingSessionFile, pendingSessionMeta, todo_items);
+    setPendingSessionFile(null);
+    setPendingSessionMeta(null);
+  };
 
   const masukLocationText = selectedRecord?.clockIn
     ? (selectedRecord.clockInLocationName || 'Lokasi belum tercatat')
@@ -726,11 +872,88 @@ export default function Riwayat() {
                       <p className="text-[12px] font-bold text-red-600 text-center">{actionError}</p>
                     )}
                     <p className="text-[10px] text-slate-400 text-center font-medium">
-                      Foto + GPS wajib · dalam 2 km: HO Alora · di luar: Lokasi diluar jangkauan
+                      Foto + GPS wajib · lokasi dicatat untuk audit (tidak memblokir absen)
                     </p>
                     <p className="text-[10px] text-slate-400 text-center font-medium">
                       Ambil dari kamera, bukan dari galeri.
                     </p>
+                  </div>
+                )}
+
+                {selectedIsToday && !isLockedByLeave && (
+                  <div className={`flex flex-col gap-2 pt-2 border-t border-slate-100 ${showSessionsPanel ? 'ring-2 ring-violet-200 rounded-2xl p-3' : ''}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-extrabold text-navy-950 uppercase tracking-wider">
+                        Sesi Lembur &amp; Earned RO
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-bold">
+                        Lembur {balances.overtime_hours}j · RO {balances.replace_off_hours}j
+                      </span>
+                    </div>
+                    {activeSession ? (
+                      <div className="rounded-[16px] border border-violet-200 bg-violet-50 px-3.5 py-3">
+                        <p className="text-[12px] font-bold text-violet-900">
+                          Sesi {activeSession.session_type === 'lembur' ? 'Lembur' : 'Earned RO'} aktif
+                        </p>
+                        {canSessionCheckOut && (
+                          <button
+                            type="button"
+                            disabled={sessionLoading}
+                            onClick={() => setCameraTarget({
+                              key: activeSession.session_type === 'lembur'
+                                ? 'session_lembur_out'
+                                : 'session_earned_ro_out',
+                              label: 'Foto Clock Out Sesi',
+                            })}
+                            className="mt-2 w-full py-2.5 rounded-xl bg-violet-600 text-white text-[12px] font-black disabled:opacity-60"
+                          >
+                            Clock Out Sesi + To-do
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {canStartLembur && (
+                          <button
+                            type="button"
+                            disabled={sessionLoading}
+                            onClick={() => setCameraTarget({ key: 'session_lembur_in', label: 'Clock In Lembur' })}
+                            className="w-full py-2.5 rounded-xl border border-violet-300 text-violet-800 text-[12px] font-black bg-violet-50 disabled:opacity-60"
+                          >
+                            Clock In Lembur
+                          </button>
+                        )}
+                        {canStartEarnedRo && (
+                          <>
+                            <textarea
+                              value={earnedRoReason}
+                              onChange={(e) => setEarnedRoReason(e.target.value)}
+                              rows={2}
+                              placeholder="Alasan bekerja di hari libur (wajib)"
+                              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                            />
+                            <button
+                              type="button"
+                              disabled={sessionLoading || !earnedRoReason.trim()}
+                              onClick={() => setCameraTarget({ key: 'session_earned_ro_in', label: 'Clock In Earned RO' })}
+                              className="w-full py-2.5 rounded-xl border border-blue-300 text-blue-800 text-[12px] font-black bg-blue-50 disabled:opacity-60"
+                            >
+                              Clock In Earned Replace Off
+                            </button>
+                          </>
+                        )}
+                        {!canStartLembur && !canStartEarnedRo && (
+                          <p className="text-[11px] text-slate-500 text-center">
+                            {dayContext?.is_off_day
+                              ? 'Mulai sesi Earned RO di atas'
+                              : 'Selesaikan absen keluar reguler untuk membuka Lembur'}
+                          </p>
+                        )}
+                      </>
+                    )}
+                    {sessionError && (
+                      <p className="text-[12px] font-bold text-red-600 text-center">{sessionError}</p>
+                    )}
                   </div>
                 )}
 
@@ -1123,6 +1346,27 @@ export default function Riwayat() {
         message="Data absen (jam, lokasi, dan foto) akan dihapus. Anda perlu absen ulang. Lanjutkan?"
         confirmText="Ya, Hapus"
         cancelText="Batal"
+      />
+
+      <LateCheckInModal
+        open={showLateModal}
+        onClose={() => setShowLateModal(false)}
+        onSubmit={handleLateModalSubmit}
+        loading={actionLoading}
+        error={lateModalError}
+      />
+
+      <SessionTodoModal
+        open={Boolean(sessionTodoTarget)}
+        title={sessionTodoTarget === 'lembur' ? 'Selesaikan Lembur' : 'Selesaikan Earned RO'}
+        onClose={() => {
+          setSessionTodoTarget(null);
+          setPendingSessionFile(null);
+          setPendingSessionMeta(null);
+        }}
+        onSubmit={handleSessionTodoSubmit}
+        loading={sessionLoading}
+        error={sessionError}
       />
     </div>
   );

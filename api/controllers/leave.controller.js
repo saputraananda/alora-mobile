@@ -4,6 +4,11 @@ import multer from 'multer';
 import sharp from 'sharp';
 import { aloraMobilePool, mainPool } from '../db/pool.js';
 import { getBaseUploadDir } from '../middleware/upload.js';
+import {
+  assertSufficientAnnualLeave,
+  countLeaveDays,
+  getAnnualLeaveBalance,
+} from '../utils/annualLeaveService.js';
 
 const LEAVE_BASE = path.join(getBaseUploadDir(), 'leave');
 
@@ -85,6 +90,7 @@ function serializeLeave(row) {
     ...row,
     start_date: toDateOnly(row.start_date),
     end_date: toDateOnly(row.end_date),
+    leave_days: row.leave_days != null ? Number(row.leave_days) : null,
   };
 }
 
@@ -127,6 +133,28 @@ export const serveDoctorNote = (req, res) => {
   }
 
   return res.sendFile(fullPath);
+};
+
+export const getAnnualLeaveBalanceHandler = async (req, res) => {
+  try {
+    const balance = await getAnnualLeaveBalance(req.employeeId);
+    const previewStart = req.query.preview_start;
+    const previewEnd = req.query.preview_end || previewStart;
+    const previewDuration = req.query.duration_type || 'full_day';
+
+    if (previewStart && previewEnd) {
+      balance.preview_days = await countLeaveDays({
+        startDate: previewStart,
+        endDate: previewEnd,
+        durationType: previewDuration,
+      });
+    }
+
+    return res.json(balance);
+  } catch (error) {
+    console.error('[leave] getAnnualLeaveBalance', error);
+    return res.status(500).json({ message: 'Gagal mengambil saldo cuti' });
+  }
 };
 
 export const getTodayLeave = async (req, res) => {
@@ -299,6 +327,12 @@ export const submitLeave = async (req, res) => {
       return res.status(409).json({ message: 'Anda sudah memiliki pengajuan izin aktif pada rentang tanggal tersebut' });
     }
 
+    let leaveDays = null;
+    if (leave_type === 'cuti') {
+      leaveDays = await countLeaveDays({ startDate: start_date, endDate: end_date, durationType: duration_type });
+      await assertSufficientAnnualLeave(employeeId, leaveDays);
+    }
+
     let doctorNoteFile = null;
     let doctorNotePath = null;
     if (req.file) {
@@ -309,15 +343,16 @@ export const submitLeave = async (req, res) => {
 
     const [result] = await aloraMobilePool.query(
       `INSERT INTO tr_worker_leaves
-         (employee_id, leave_type, duration_type, start_date, end_date, reason,
+         (employee_id, leave_type, duration_type, start_date, end_date, leave_days, reason,
           doctor_note_file, doctor_note_path, status, department_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         employeeId,
         leave_type,
         duration_type,
         start_date,
         end_date,
+        leaveDays,
         String(reason).trim(),
         doctorNoteFile,
         doctorNotePath,
@@ -338,7 +373,8 @@ export const submitLeave = async (req, res) => {
   } catch (error) {
     if (savedFile?.file) deleteDoctorFile(savedFile.file);
     console.error('[leave] submitLeave', error);
-    return res.status(500).json({ message: 'Gagal mengirim pengajuan izin' });
+    const status = error.statusCode || 500;
+    return res.status(status).json({ message: error.message || 'Gagal mengirim pengajuan izin' });
   }
 };
 
@@ -407,6 +443,18 @@ export const updateLeave = async (req, res) => {
       return res.status(409).json({ message: 'Terdapat pengajuan izin aktif lain pada rentang tanggal tersebut' });
     }
 
+    let leaveDays = existing.leave_days != null ? Number(existing.leave_days) : null;
+    if (newLeaveType === 'cuti') {
+      leaveDays = await countLeaveDays({
+        startDate: newStartDate,
+        endDate: newEndDate,
+        durationType: newDurationType,
+      });
+      await assertSufficientAnnualLeave(employeeId, leaveDays, id);
+    } else {
+      leaveDays = null;
+    }
+
     let newDoctorNoteFile = existing.doctor_note_file;
     let newDoctorNotePath = existing.doctor_note_path;
 
@@ -423,7 +471,7 @@ export const updateLeave = async (req, res) => {
 
     await aloraMobilePool.query(
       `UPDATE tr_worker_leaves
-       SET leave_type = ?, duration_type = ?, start_date = ?, end_date = ?,
+       SET leave_type = ?, duration_type = ?, start_date = ?, end_date = ?, leave_days = ?,
            reason = ?, doctor_note_file = ?, doctor_note_path = ?,
            status = ?, department_id = ?,
            supervisor_id = NULL, supervisor_approved_at = NULL, supervisor_rejection_reason = NULL,
@@ -436,6 +484,7 @@ export const updateLeave = async (req, res) => {
         newDurationType,
         newStartDate,
         newEndDate,
+        leaveDays,
         newReason,
         newDoctorNoteFile,
         newDoctorNotePath,
@@ -453,7 +502,8 @@ export const updateLeave = async (req, res) => {
   } catch (error) {
     if (savedFile?.file) deleteDoctorFile(savedFile.file);
     console.error('[leave] updateLeave', error);
-    return res.status(500).json({ message: 'Gagal memperbarui pengajuan' });
+    const status = error.statusCode || 500;
+    return res.status(status).json({ message: error.message || 'Gagal memperbarui pengajuan' });
   }
 };
 
