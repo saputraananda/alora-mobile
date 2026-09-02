@@ -35,8 +35,29 @@ function mapLeaveToStatuses(leave) {
     return leave.doctor_note_path ? ['SAKIT_SKD'] : ['SAKIT_NON_SKD'];
   }
   if (type === 'wfa') return ['WFA'];
-  if (type === 'izin') return ['REPLACE_OFF'];
+  if (type === 'izin') {
+    const statuses = [];
+    const ro = Number(leave.funding_ro_hours || 0);
+    const ot = Number(leave.funding_overtime_hours || 0);
+    const unpaid = Number(leave.funding_unpaid_hours || 0);
+    if (ro > 0) statuses.push('REPLACE_OFF');
+    if (ot > 0) statuses.push('OVERTIME_LEAVE');
+    if (unpaid > 0) statuses.push('UNPAID_LEAVE');
+    if (statuses.length === 0) statuses.push('REPLACE_OFF');
+    return statuses;
+  }
   return [];
+}
+
+function mapAttendanceToStatuses(attendance) {
+  if (!attendance?.clock_in) return [];
+  if (attendance.attendance_mode === 'wod' && attendance.approval_status === 'disetujui') {
+    return ['EARNED_REPLACE_OFF'];
+  }
+  if (attendance.attendance_mode === 'wfa' && attendance.approval_status === 'disetujui') {
+    return ['WFA'];
+  }
+  return ['HADIR'];
 }
 
 function mapSessionToStatuses(session) {
@@ -68,8 +89,17 @@ export function resolveFinalStatus({
     }
   }
 
-  if (attendance?.clock_in) {
-    candidates.add('HADIR');
+  if (attendance) {
+    mapAttendanceToStatuses(attendance).forEach((s) => candidates.add(s));
+  }
+
+  let approval_pending = false;
+  if (
+    attendance?.clock_in
+    && (attendance.attendance_mode === 'wfa' || attendance.attendance_mode === 'wod')
+    && attendance.approval_status === 'Pending_Supervisor'
+  ) {
+    approval_pending = true;
   }
 
   let primary_status = 'OFF';
@@ -92,10 +122,12 @@ export function resolveFinalStatus({
   const labels = [STATUS_LABELS[primary_status] || primary_status];
   if (late_flag === 'planned') labels.push('Terlambat (Rencana)');
   if (late_flag === 'unexpected') labels.push('Terlambat (Tidak Terduga)');
+  if (approval_pending) labels.push('Menunggu approval');
 
   return {
     primary_status,
     late_flag,
+    approval_pending,
     labels,
     status_label: labels.join(' · '),
   };
@@ -108,7 +140,8 @@ export async function getEmployeeDayContext(employeeId, dateStr) {
   );
 
   const [leaves] = await aloraMobilePool.query(
-    `SELECT id, leave_type, start_date, end_date, status, doctor_note_path, duration_type
+    `SELECT id, leave_type, start_date, end_date, status, doctor_note_path, duration_type,
+            funding_ro_hours, funding_overtime_hours, funding_unpaid_hours
      FROM tr_worker_leaves
      WHERE employee_id = ? AND start_date <= ? AND end_date >= ?`,
     [employeeId, dateStr, dateStr]
@@ -139,7 +172,8 @@ export async function getEmployeeMonthFinalStatuses(employeeId, startDate, endDa
   );
 
   const [leaveRows] = await aloraMobilePool.query(
-    `SELECT id, leave_type, start_date, end_date, status, doctor_note_path
+    `SELECT id, leave_type, start_date, end_date, status, doctor_note_path,
+            funding_ro_hours, funding_overtime_hours, funding_unpaid_hours
      FROM tr_worker_leaves
      WHERE employee_id = ? AND status = 'disetujui'
        AND start_date < ? AND end_date >= ?`,

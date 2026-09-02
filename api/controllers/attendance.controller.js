@@ -11,6 +11,20 @@ import {
 } from '../utils/workScheduleRules.js';
 import { getOvertimeBalance, getReplaceOffBalance } from '../utils/ledgerService.js';
 import { getEmployeeDayContext, getEmployeeMonthFinalStatuses } from '../utils/attendanceStatusResolver.js';
+import {
+  assertModeAllowedForDay,
+  assertModeReasonRequired,
+  approvalStatusLabel,
+  ATTENDANCE_MODES,
+  computeDurationHours,
+  derivePunchLocationContext,
+  formatModeLocationLabel,
+  getAllowedModes,
+  OFF_DAY_MESSAGE,
+  resolveSuggestedMode,
+  validateTodoItems,
+} from '../utils/attendanceModeRules.js';
+import { getWorkScheduleForDate, isOffDay } from '../utils/workScheduleRules.js';
 
 const HO_LOCATION_CODE = 'HO-ALR';
 const ABSEN_RADIUS_KM = 2;
@@ -71,11 +85,24 @@ function distanceKm(lat1, lng1, lat2, lng2) {
 
 function serializeAttendance(row) {
   if (!row) return null;
+  let todoItems = row.todo_items;
+  if (typeof todoItems === 'string') {
+    try { todoItems = JSON.parse(todoItems); } catch { todoItems = []; }
+  }
+  const punchInCtx = row.punch_location_context_in || null;
   return {
     ...row,
     attendance_date: toDateOnly(row.attendance_date),
     clock_in_inside_radius: row.clock_in_inside_radius != null ? Boolean(row.clock_in_inside_radius) : null,
     clock_out_inside_radius: row.clock_out_inside_radius != null ? Boolean(row.clock_out_inside_radius) : null,
+    duration_hours: row.duration_hours != null ? Number(row.duration_hours) : null,
+    todo_items: todoItems,
+    mode_location_label: formatModeLocationLabel({
+      attendanceMode: row.attendance_mode,
+      punchLocationContextIn: punchInCtx,
+    }),
+    approval_status_label: approvalStatusLabel(row.approval_status),
+    approval_pending: row.approval_status === 'Pending_Supervisor',
   };
 }
 
@@ -263,7 +290,9 @@ export const getMonthAttendance = async (req, res) => {
       `SELECT attendance_date, clock_in, clock_out, foto_masuk_path, foto_keluar_path,
               clock_in_location_name, clock_out_location_name,
               late_category, late_reason, late_minutes, late_status,
-              clock_in_inside_radius, clock_out_inside_radius
+              clock_in_inside_radius, clock_out_inside_radius,
+              attendance_mode, punch_location_context_in, punch_location_context_out,
+              mode_reason, duration_hours, approval_status
        FROM tr_worker_attendance
        WHERE employee_id = ?
          AND attendance_date >= ?
@@ -286,6 +315,51 @@ export const getMonthAttendance = async (req, res) => {
   } catch (error) {
     console.error('[attendance] getMonthAttendance', error);
     return res.status(500).json({ message: 'Gagal mengambil absensi bulan ini' });
+  }
+};
+
+export const getPunchContext = async (req, res) => {
+  const today = todayDateString();
+  try {
+    const offDay = await isOffDay(today);
+    const { holiday } = await getWorkScheduleForDate(today);
+
+    let insideRadius = null;
+    const lat = parseCoordinate(req.query.latitude);
+    const lng = parseCoordinate(req.query.longitude);
+    if (lat != null && lng != null) {
+      try {
+        const resolved = await resolvePunchLocation(lat, lng);
+        insideRadius = resolved.insideRadius;
+      } catch {
+        insideRadius = false;
+      }
+    }
+
+    const suggestedMode = insideRadius != null
+      ? resolveSuggestedMode({ isOffDay: offDay, insideRadius })
+      : (offDay ? ATTENDANCE_MODES.WOD : ATTENDANCE_MODES.REGULAR);
+
+    const tolerance = await getLateToleranceDateTime(today);
+    const lateMinutes = offDay
+      ? 0
+      : computeLateMinutesFromClockIn(new Date(), today, tolerance);
+
+    return res.json({
+      date: today,
+      is_off_day: offDay,
+      holiday_name: holiday?.name || null,
+      inside_radius: insideRadius,
+      punch_location_context: insideRadius != null ? derivePunchLocationContext(insideRadius) : null,
+      suggested_mode: suggestedMode,
+      allowed_modes: getAllowedModes(offDay),
+      off_day_message: offDay ? OFF_DAY_MESSAGE : null,
+      is_late: lateMinutes > 0,
+      late_tolerance_iso: tolerance.toISOString(),
+    });
+  } catch (error) {
+    console.error('[attendance] getPunchContext', error);
+    return res.status(500).json({ message: 'Gagal mengambil konteks absensi' });
   }
 };
 
@@ -370,14 +444,25 @@ export const checkInAttendance = async (req, res) => {
       return res.status(422).json({ message: 'Foto masuk wajib dilampirkan' });
     }
 
+    const attendanceMode = String(req.body.attendance_mode || '').trim();
+    const modeReason = String(req.body.mode_reason || '').trim();
+    const offDay = await isOffDay(today);
+
+    assertModeAllowedForDay({ isOffDay: offDay, attendanceMode });
+    assertModeReasonRequired(attendanceMode, modeReason);
+
     const { lateCategory, lateReason } = parseLateFields(req.body);
-    const lateFields = await validateAndBuildLateFields(today, lateCategory, lateReason);
+    let lateFields = { lateMinutes: 0, lateCategory: null, lateReason: null, lateStatus: null };
+    if (attendanceMode === ATTENDANCE_MODES.REGULAR) {
+      lateFields = await validateAndBuildLateFields(today, lateCategory, lateReason);
+    }
 
     const { office, lat, lng, locationName, insideRadius } = await resolvePunchLocation(
       req.body.latitude,
       req.body.longitude
     );
     const locationAbsenId = insideRadius ? office.id : null;
+    const punchContextIn = derivePunchLocationContext(insideRadius);
     const existing = await getTodayRow(employeeId);
 
     if (existing?.clock_in) {
@@ -386,13 +471,15 @@ export const checkInAttendance = async (req, res) => {
 
     const saved = await savePhoto(employeeId, today, 'foto_masuk', req.file);
 
-    const insertCols = `employee_id, attendance_date, clock_in, foto_masuk_path,
+    const insertCols = `employee_id, attendance_date, attendance_mode, clock_in, foto_masuk_path,
             clock_in_latitude, clock_in_longitude, clock_in_location_name, location_absen_id,
-            clock_in_inside_radius, late_category, late_reason, late_minutes, late_status`;
-    const insertVals = `?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`;
+            clock_in_inside_radius, punch_location_context_in, mode_reason,
+            late_category, late_reason, late_minutes, late_status, approval_status`;
+    const insertVals = `?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL`;
     const params = [
-      employeeId, today, saved.path, lat, lng, locationName, locationAbsenId,
-      insideRadius ? 1 : 0,
+      employeeId, today, attendanceMode, saved.path, lat, lng, locationName, locationAbsenId,
+      insideRadius ? 1 : 0, punchContextIn,
+      (attendanceMode === ATTENDANCE_MODES.WFA || attendanceMode === ATTENDANCE_MODES.WOD) ? modeReason : null,
       lateFields.lateCategory, lateFields.lateReason, lateFields.lateMinutes || null, lateFields.lateStatus,
     ];
 
@@ -413,21 +500,27 @@ export const checkInAttendance = async (req, res) => {
 
     await aloraMobilePool.query(
       `UPDATE tr_worker_attendance
-       SET clock_in = NOW(),
+       SET attendance_mode = ?,
+           clock_in = NOW(),
            foto_masuk_path = ?,
            clock_in_latitude = ?,
            clock_in_longitude = ?,
            clock_in_location_name = ?,
            location_absen_id = ?,
            clock_in_inside_radius = ?,
+           punch_location_context_in = ?,
+           mode_reason = ?,
            late_category = ?,
            late_reason = ?,
            late_minutes = ?,
            late_status = ?,
+           approval_status = NULL,
            updated_at = NOW()
        WHERE id = ?`,
       [
-        saved.path, lat, lng, locationName, locationAbsenId, insideRadius ? 1 : 0,
+        attendanceMode, saved.path, lat, lng, locationName, locationAbsenId, insideRadius ? 1 : 0,
+        punchContextIn,
+        (attendanceMode === ATTENDANCE_MODES.WFA || attendanceMode === ATTENDANCE_MODES.WOD) ? modeReason : null,
         lateFields.lateCategory, lateFields.lateReason, lateFields.lateMinutes || null, lateFields.lateStatus,
         existing.id,
       ]
@@ -473,6 +566,26 @@ export const checkOutAttendance = async (req, res) => {
 
     const saved = await savePhoto(employeeId, today, 'foto_keluar', req.file);
 
+    const punchContextOut = derivePunchLocationContext(insideRadius);
+    const clockOutNow = new Date();
+    const duration = computeDurationHours(existing.clock_in, clockOutNow);
+    if (duration.error) {
+      return res.status(400).json({ message: duration.error });
+    }
+
+    let todoJson = null;
+    const mode = existing.attendance_mode || ATTENDANCE_MODES.REGULAR;
+    if (mode === ATTENDANCE_MODES.WOD) {
+      const todoValidated = validateTodoItems(req.body.todo_items);
+      if (todoValidated.error) {
+        return res.status(422).json({ message: todoValidated.error });
+      }
+      todoJson = JSON.stringify(todoValidated.items);
+    }
+
+    const needsApproval = mode === ATTENDANCE_MODES.WFA || mode === ATTENDANCE_MODES.WOD;
+    const approvalStatus = needsApproval ? 'Pending_Supervisor' : null;
+
     await aloraMobilePool.query(
       `UPDATE tr_worker_attendance
        SET clock_out = NOW(),
@@ -481,9 +594,22 @@ export const checkOutAttendance = async (req, res) => {
            clock_out_longitude = ?,
            clock_out_location_name = ?,
            clock_out_inside_radius = ?,
+           punch_location_context_out = ?,
+           duration_hours = ?,
+           todo_items = COALESCE(?, todo_items),
+           approval_status = ?,
+           supervisor_id = NULL,
+           supervisor_approved_at = NULL,
+           supervisor_rejection_reason = NULL,
+           approved_by = NULL,
+           approved_by_name = NULL,
+           approved_at = NULL,
            updated_at = NOW()
        WHERE id = ?`,
-      [saved.path, lat, lng, locationName, insideRadius ? 1 : 0, existing.id]
+      [
+        saved.path, lat, lng, locationName, insideRadius ? 1 : 0, punchContextOut,
+        duration.durationHours, todoJson, approvalStatus, existing.id,
+      ]
     );
     const [[updated]] = await aloraMobilePool.query(
       'SELECT * FROM tr_worker_attendance WHERE id = ?',
@@ -518,12 +644,24 @@ export const deleteCheckInPhoto = async (req, res) => {
     await aloraMobilePool.query(
       `UPDATE tr_worker_attendance
        SET clock_in = NULL,
+           attendance_mode = NULL,
            foto_masuk_path = NULL,
            clock_in_latitude = NULL,
            clock_in_longitude = NULL,
            clock_in_location_name = NULL,
            location_absen_id = NULL,
            clock_in_inside_radius = NULL,
+           punch_location_context_in = NULL,
+           mode_reason = NULL,
+           todo_items = NULL,
+           duration_hours = NULL,
+           approval_status = NULL,
+           supervisor_id = NULL,
+           supervisor_approved_at = NULL,
+           supervisor_rejection_reason = NULL,
+           approved_by = NULL,
+           approved_by_name = NULL,
+           approved_at = NULL,
            late_category = NULL,
            late_reason = NULL,
            late_minutes = NULL,

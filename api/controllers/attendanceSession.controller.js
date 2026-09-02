@@ -373,5 +373,9 @@ async function finishSessionCheckOut(req, res, sessionType) {
 
 export const lemburCheckIn = (req, res) => startSessionCheckIn(req, res, SESSION_TYPES.LEMBUR);
 export const lemburCheckOut = (req, res) => finishSessionCheckOut(req, res, SESSION_TYPES.LEMBUR);
-export const earnedRoCheckIn = (req, res) => startSessionCheckIn(req, res, SESSION_TYPES.EARNED_RO);
-export const earnedRoCheckOut = (req, res) => finishSessionCheckOut(req, res, SESSION_TYPES.EARNED_RO);
+export const earnedRoCheckIn = (_req, res) => res.status(410).json({
+  message: 'Earned RO session sudah digabung ke absensi WOD. Gunakan absen masuk di Riwayat dan pilih WOD.',
+});
+export const earnedRoCheckOut = (_req, res) => res.status(410).json({
+  message: 'Earned RO session sudah digabung ke absensi WOD. Gunakan absen keluar di Riwayat.',
+});

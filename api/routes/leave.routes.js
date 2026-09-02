@@ -7,6 +7,8 @@ import {
   getLeaveYears,
   getLeaveStats,
   getAnnualLeaveBalanceHandler,
+  getFundingBalances,
+  getWorkHours,
   submitLeave,
   updateLeave,
   cancelLeave,
@@ -36,6 +38,8 @@ router.get('/today', getTodayLeave);
 router.get('/years', getLeaveYears);
 router.get('/stats', getLeaveStats);
 router.get('/annual-balance', getAnnualLeaveBalanceHandler);
+router.get('/funding-balances', getFundingBalances);
+router.get('/work-hours', getWorkHours);
 router.get('/list', getLeaveList);
 router.post('/', handleUpload, submitLeave);
 router.put('/:id', handleUpload, updateLeave);

@@ -11,6 +11,7 @@ import {
   checkOutAttendance,
   getAttendanceBalances,
   getDayContext,
+  getPunchContext,
   replaceCheckInPhoto,
   replaceCheckOutPhoto,
   deleteCheckInPhoto,
@@ -38,6 +39,7 @@ router.get('/today', getTodayAttendance);
 router.get('/month', getMonthAttendance);
 router.get('/balances', getAttendanceBalances);
 router.get('/day-context', getDayContext);
+router.get('/punch-context', getPunchContext);
 router.get('/location', getAbsenLocation);
 router.get('/file/:filename', serveAttendanceFile);
 router.put('/photo-in', handleUpload(fotoMasukUploadMiddleware), replaceCheckInPhoto);

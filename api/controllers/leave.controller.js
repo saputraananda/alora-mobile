@@ -9,6 +9,17 @@ import {
   countLeaveDays,
   getAnnualLeaveBalance,
 } from '../utils/annualLeaveService.js';
+import { getOvertimeBalance, getReplaceOffBalance } from '../utils/ledgerService.js';
+import {
+  assertIzinSameDayRules,
+  formatTimeHHmm,
+  getDefaultWorkHoursForDate,
+  isPartialDuration,
+  normalizeDurationType,
+  parseFundingSources,
+  resolveIzinFundingForSubmit,
+  resolveLeaveTimes,
+} from '../utils/leaveTimeRules.js';
 
 const LEAVE_BASE = path.join(getBaseUploadDir(), 'leave');
 
@@ -26,7 +37,12 @@ const upload = multer({
 export const doctorNoteUploadMiddleware = upload.single('doctor_note');
 
 const ALLOWED_LEAVE_TYPES = new Set(['izin', 'sakit', 'cuti']);
-const ALLOWED_DURATION_TYPES = new Set(['full_day', 'half_day_morning', 'half_day_afternoon']);
+const ALLOWED_DURATION_TYPES = new Set([
+  'full_day',
+  'partial',
+  'half_day_morning',
+  'half_day_afternoon',
+]);
 const ACTIVE_LEAVE_STATUSES = ['Pending_Supervisor', 'Pending_HRD', 'disetujui'];
 const EDITABLE_LEAVE_STATUSES = ['Pending_Supervisor', 'Rejected_Supervisor', 'Rejected_HRD'];
 
@@ -86,11 +102,85 @@ function deleteDoctorFile(fileName) {
 
 function serializeLeave(row) {
   if (!row) return null;
+  let fundingSourcesParsed = [];
+  if (row.funding_sources) {
+    fundingSourcesParsed = parseFundingSources(row.funding_sources);
+  }
   return {
     ...row,
     start_date: toDateOnly(row.start_date),
     end_date: toDateOnly(row.end_date),
     leave_days: row.leave_days != null ? Number(row.leave_days) : null,
+    start_time: formatTimeHHmm(row.start_time),
+    end_time: formatTimeHHmm(row.end_time),
+    leave_duration_hours: row.leave_duration_hours != null ? Number(row.leave_duration_hours) : null,
+    funding_ro_hours: row.funding_ro_hours != null ? Number(row.funding_ro_hours) : null,
+    funding_overtime_hours: row.funding_overtime_hours != null ? Number(row.funding_overtime_hours) : null,
+    funding_unpaid_hours: row.funding_unpaid_hours != null ? Number(row.funding_unpaid_hours) : null,
+    funding_sources: fundingSourcesParsed,
+  };
+}
+
+function isAllowedDurationType(durationType) {
+  if (ALLOWED_DURATION_TYPES.has(durationType)) return true;
+  return normalizeDurationType(durationType) === 'partial';
+}
+
+async function buildLeaveTimeAndFundingFields(employeeId, {
+  leaveType,
+  durationType,
+  startDate,
+  endDate,
+  startTime,
+  endTime,
+  fundingSourcesRaw,
+}) {
+  assertIzinSameDayRules(leaveType, durationType, startDate);
+
+  let resolvedDurationType = durationType;
+  let start_time = null;
+  let end_time = null;
+  let leave_duration_hours = null;
+
+  const isMultiDayCuti = leaveType === 'cuti' && startDate !== endDate && !isPartialDuration(durationType);
+
+  if (!isMultiDayCuti) {
+    const resolved = await resolveLeaveTimes({
+      durationType,
+      startDate,
+      endDate,
+      startTime,
+      endTime,
+    });
+    start_time = resolved.start_time;
+    end_time = resolved.end_time;
+    leave_duration_hours = resolved.leave_duration_hours;
+    resolvedDurationType = resolved.duration_type;
+  }
+
+  let funding_ro_hours = null;
+  let funding_overtime_hours = null;
+  let funding_unpaid_hours = null;
+  let funding_sources = null;
+
+  if (leaveType === 'izin') {
+    const sources = parseFundingSources(fundingSourcesRaw);
+    const funding = await resolveIzinFundingForSubmit(employeeId, leave_duration_hours, sources);
+    funding_ro_hours = funding.funding_ro_hours;
+    funding_overtime_hours = funding.funding_overtime_hours;
+    funding_unpaid_hours = funding.funding_unpaid_hours;
+    funding_sources = JSON.stringify(funding.funding_sources);
+  }
+
+  return {
+    duration_type: resolvedDurationType,
+    start_time,
+    end_time,
+    leave_duration_hours,
+    funding_ro_hours,
+    funding_overtime_hours,
+    funding_unpaid_hours,
+    funding_sources,
   };
 }
 
@@ -133,6 +223,31 @@ export const serveDoctorNote = (req, res) => {
   }
 
   return res.sendFile(fullPath);
+};
+
+export const getFundingBalances = async (req, res) => {
+  try {
+    const replace_off_hours = await getReplaceOffBalance(req.employeeId);
+    const overtime_hours = await getOvertimeBalance(req.employeeId);
+    return res.json({ replace_off_hours, overtime_hours });
+  } catch (error) {
+    console.error('[leave] getFundingBalances', error);
+    return res.status(500).json({ message: 'Gagal mengambil saldo izin' });
+  }
+};
+
+export const getWorkHours = async (req, res) => {
+  const dateStr = String(req.query.date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return res.status(422).json({ message: 'Parameter date wajib (YYYY-MM-DD)' });
+  }
+  try {
+    const hours = await getDefaultWorkHoursForDate(dateStr);
+    return res.json(hours);
+  } catch (error) {
+    const status = error.statusCode || 500;
+    return res.status(status).json({ message: error.message || 'Gagal mengambil jam kerja' });
+  }
 };
 
 export const getAnnualLeaveBalanceHandler = async (req, res) => {
@@ -206,6 +321,8 @@ export const getLeaveList = async (req, res) => {
 
     const [rows] = await aloraMobilePool.query(
       `SELECT id, leave_type, duration_type, start_date, end_date, reason,
+              start_time, end_time, leave_duration_hours,
+              funding_ro_hours, funding_overtime_hours, funding_unpaid_hours, funding_sources,
               status, rejection_note, doctor_note_file, doctor_note_path,
               department_id, supervisor_id, supervisor_approved_at, supervisor_rejection_reason,
               hrd_id, hrd_approved_at, hrd_rejection_reason,
@@ -289,7 +406,7 @@ export const submitLeave = async (req, res) => {
     if (!ALLOWED_LEAVE_TYPES.has(leave_type)) {
       return res.status(422).json({ message: 'leave_type tidak valid' });
     }
-    if (!ALLOWED_DURATION_TYPES.has(duration_type)) {
+    if (!isAllowedDurationType(duration_type)) {
       return res.status(422).json({ message: 'duration_type tidak valid' });
     }
     if (!start_date || !end_date) {
@@ -301,11 +418,8 @@ export const submitLeave = async (req, res) => {
     if (!reason || String(reason).trim().length < 5) {
       return res.status(422).json({ message: 'Keterangan wajib diisi minimal 5 karakter' });
     }
-    if (leave_type === 'sakit' && !req.file) {
-      return res.status(422).json({ message: 'Foto surat dokter wajib dilampirkan untuk izin sakit' });
-    }
-    if (duration_type !== 'full_day' && start_date !== end_date) {
-      return res.status(422).json({ message: 'Izin setengah hari hanya berlaku untuk 1 hari' });
+    if (isPartialDuration(duration_type) && start_date !== end_date) {
+      return res.status(422).json({ message: 'Izin partial hanya berlaku untuk 1 hari' });
     }
 
     const requester = await getRequesterJobContext(employeeId);
@@ -341,19 +455,38 @@ export const submitLeave = async (req, res) => {
       doctorNotePath = savedFile.path;
     }
 
+    const timeFunding = await buildLeaveTimeAndFundingFields(employeeId, {
+      leaveType: leave_type,
+      durationType: duration_type,
+      startDate: start_date,
+      endDate: end_date,
+      startTime: req.body.start_time,
+      endTime: req.body.end_time,
+      fundingSourcesRaw: req.body.funding_sources,
+    });
+
     const [result] = await aloraMobilePool.query(
       `INSERT INTO tr_worker_leaves
          (employee_id, leave_type, duration_type, start_date, end_date, leave_days, reason,
+          start_time, end_time, leave_duration_hours,
+          funding_ro_hours, funding_overtime_hours, funding_unpaid_hours, funding_sources,
           doctor_note_file, doctor_note_path, status, department_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         employeeId,
         leave_type,
-        duration_type,
+        timeFunding.duration_type,
         start_date,
         end_date,
         leaveDays,
         String(reason).trim(),
+        timeFunding.start_time,
+        timeFunding.end_time,
+        timeFunding.leave_duration_hours,
+        timeFunding.funding_ro_hours,
+        timeFunding.funding_overtime_hours,
+        timeFunding.funding_unpaid_hours,
+        timeFunding.funding_sources,
         doctorNoteFile,
         doctorNotePath,
         initialStatus,
@@ -416,7 +549,7 @@ export const updateLeave = async (req, res) => {
     if (!ALLOWED_LEAVE_TYPES.has(newLeaveType)) {
       return res.status(422).json({ message: 'leave_type tidak valid' });
     }
-    if (!ALLOWED_DURATION_TYPES.has(newDurationType)) {
+    if (!isAllowedDurationType(newDurationType)) {
       return res.status(422).json({ message: 'duration_type tidak valid' });
     }
     if (newStartDate > newEndDate) {
@@ -425,11 +558,8 @@ export const updateLeave = async (req, res) => {
     if (!newReason || newReason.length < 5) {
       return res.status(422).json({ message: 'Keterangan wajib diisi minimal 5 karakter' });
     }
-    if (newDurationType !== 'full_day' && newStartDate !== newEndDate) {
-      return res.status(422).json({ message: 'Izin setengah hari hanya berlaku untuk 1 hari' });
-    }
-    if (newLeaveType === 'sakit' && !req.file && !existing.doctor_note_path) {
-      return res.status(422).json({ message: 'Foto surat dokter wajib dilampirkan untuk izin sakit' });
+    if (isPartialDuration(newDurationType) && newStartDate !== newEndDate) {
+      return res.status(422).json({ message: 'Izin partial hanya berlaku untuk 1 hari' });
     }
 
     const [overlap] = await aloraMobilePool.query(
@@ -469,10 +599,22 @@ export const updateLeave = async (req, res) => {
       newDoctorNotePath = null;
     }
 
+    const timeFunding = await buildLeaveTimeAndFundingFields(employeeId, {
+      leaveType: newLeaveType,
+      durationType: newDurationType,
+      startDate: newStartDate,
+      endDate: newEndDate,
+      startTime: req.body.start_time,
+      endTime: req.body.end_time,
+      fundingSourcesRaw: req.body.funding_sources,
+    });
+
     await aloraMobilePool.query(
       `UPDATE tr_worker_leaves
        SET leave_type = ?, duration_type = ?, start_date = ?, end_date = ?, leave_days = ?,
-           reason = ?, doctor_note_file = ?, doctor_note_path = ?,
+           reason = ?, start_time = ?, end_time = ?, leave_duration_hours = ?,
+           funding_ro_hours = ?, funding_overtime_hours = ?, funding_unpaid_hours = ?, funding_sources = ?,
+           doctor_note_file = ?, doctor_note_path = ?,
            status = ?, department_id = ?,
            supervisor_id = NULL, supervisor_approved_at = NULL, supervisor_rejection_reason = NULL,
            hrd_id = NULL, hrd_approved_at = NULL, hrd_rejection_reason = NULL,
@@ -481,11 +623,18 @@ export const updateLeave = async (req, res) => {
        WHERE id = ?`,
       [
         newLeaveType,
-        newDurationType,
+        timeFunding.duration_type,
         newStartDate,
         newEndDate,
         leaveDays,
         newReason,
+        timeFunding.start_time,
+        timeFunding.end_time,
+        timeFunding.leave_duration_hours,
+        timeFunding.funding_ro_hours,
+        timeFunding.funding_overtime_hours,
+        timeFunding.funding_unpaid_hours,
+        timeFunding.funding_sources,
         newDoctorNoteFile,
         newDoctorNotePath,
         initialStatus,

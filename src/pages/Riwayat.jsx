@@ -17,6 +17,7 @@ import MobileCameraCapture from '../components/MobileCameraCapture.jsx';
 import ConfirmModal from '../components/ConfirmModal.jsx';
 import LateCheckInModal from '../components/LateCheckInModal.jsx';
 import SessionTodoModal from '../components/SessionTodoModal.jsx';
+import AttendanceIntentModal from '../components/AttendanceIntentModal.jsx';
 import {
   INSIDE_LOCATION_LABEL,
   OUTSIDE_LOCATION_LABEL,
@@ -76,6 +77,10 @@ function mapItemToRecord(item) {
     clockOut: item.clock_out || null,
     clockInLocationName: item.clock_in_location_name || null,
     clockOutLocationName: item.clock_out_location_name || null,
+    attendanceMode: item.attendance_mode || null,
+    modeLocationLabel: item.mode_location_label || null,
+    approvalStatus: item.approval_status || null,
+    approvalPending: item.approval_pending || false,
   };
 }
 
@@ -135,9 +140,12 @@ export default function Riwayat() {
   const [pendingSessionFile, setPendingSessionFile] = useState(null);
   const [pendingSessionMeta, setPendingSessionMeta] = useState(null);
   const [sessionTodoTarget, setSessionTodoTarget] = useState(null);
-  const [earnedRoReason, setEarnedRoReason] = useState('');
   const [sessionError, setSessionError] = useState('');
   const [sessionLoading, setSessionLoading] = useState(false);
+  const [intentModalOpen, setIntentModalOpen] = useState(false);
+  const [punchContext, setPunchContext] = useState(null);
+  const [intentError, setIntentError] = useState('');
+  const [pendingLateFields, setPendingLateFields] = useState(null);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('alora_user') || sessionStorage.getItem('alora_user');
@@ -378,7 +386,7 @@ export default function Riwayat() {
     };
   }, []);
 
-  const submitPunch = async (action, lateFields = null) => {
+  const submitPunch = async (action, lateFields = null, todoItems = null) => {
     const file = action === 'in' ? pendingInFile : pendingOutFile;
     const meta = action === 'in' ? pendingInMeta : pendingOutMeta;
     if (!file || meta?.latitude == null || meta?.longitude == null) {
@@ -386,34 +394,40 @@ export default function Riwayat() {
       return;
     }
 
-    if (action === 'in' && !lateFields && dayContext?.late_tolerance_iso) {
-      const isLate = Date.now() > new Date(dayContext.late_tolerance_iso).getTime();
-      if (isLate) {
-        setLateModalError('');
-        setShowLateModal(true);
-        return;
-      }
-    }
-
     const formData = new FormData();
     formData.append(action === 'in' ? 'foto_masuk' : 'foto_keluar', file);
     formData.append('latitude', String(meta.latitude));
     formData.append('longitude', String(meta.longitude));
-    if (lateFields) {
-      formData.append('late_category', lateFields.late_category);
-      formData.append('late_reason', lateFields.late_reason);
+    const effectiveLate = lateFields || pendingLateFields;
+    if (action === 'in') {
+      formData.append('attendance_mode', effectiveLate?.attendance_mode || 'regular');
+      if (effectiveLate?.mode_reason) {
+        formData.append('mode_reason', effectiveLate.mode_reason);
+      }
+      if (effectiveLate?.late_category) {
+        formData.append('late_category', effectiveLate.late_category);
+        formData.append('late_reason', effectiveLate.late_reason);
+      }
+    }
+    if (action === 'out' && todoItems) {
+      formData.append('todo_items', JSON.stringify(todoItems));
     }
 
     setActionLoading(true);
     setActionError('');
     setLateModalError('');
+    setIntentError('');
     try {
       if (action === 'in') {
         await api.post('/attendance/check-in', formData);
         clearPendingIn();
+        setIntentModalOpen(false);
+        setPunchContext(null);
+        setPendingLateFields(null);
       } else {
         await api.post('/attendance/check-out', formData);
         clearPendingOut();
+        setSessionTodoTarget(null);
       }
       await fetchMonth();
       await fetchDayContext();
@@ -422,7 +436,13 @@ export default function Riwayat() {
     } catch (err) {
       const msg = err.response?.data?.message || 'Gagal mengirim absensi.';
       setActionError(msg);
-      if (err.response?.status === 422 && action === 'in') {
+      if (action === 'in') {
+        setIntentError(msg);
+        if (err.response?.status === 422 && /terlambat/i.test(msg)) {
+          setPunchContext((prev) => (prev ? { ...prev, is_late: true } : prev));
+        }
+      }
+      if (err.response?.status === 422 && action === 'in' && !intentModalOpen) {
         setLateModalError(msg);
         setShowLateModal(true);
       }
@@ -431,26 +451,71 @@ export default function Riwayat() {
     }
   };
 
-  const handleLateModalSubmit = (fields) => {
-    submitPunch('in', fields);
+  const openIntentModal = async () => {
+    const meta = pendingInMeta;
+    if (!pendingInFile || meta?.latitude == null) {
+      setActionError('Ambil foto dari kamera terlebih dahulu.');
+      return;
+    }
+    setIntentError('');
+    try {
+      const { data } = await api.get('/attendance/punch-context', {
+        params: { latitude: meta.latitude, longitude: meta.longitude },
+      });
+      setPunchContext(data);
+      setIntentModalOpen(true);
+    } catch {
+      setActionError('Gagal memuat konteks absensi.');
+    }
   };
 
-  const submitSessionCheckIn = async (sessionType, file, meta, reason = '') => {
+  const prepareCheckIn = () => {
+    if (!pendingInFile || pendingInMeta?.latitude == null) {
+      setActionError('Ambil foto dari kamera terlebih dahulu.');
+      return;
+    }
+    openIntentModal();
+  };
+
+  const handleIntentConfirm = ({ attendance_mode, mode_reason, late_category, late_reason }) => {
+    submitPunch('in', {
+      ...(pendingLateFields || {}),
+      attendance_mode,
+      mode_reason,
+      ...(late_category ? { late_category, late_reason } : {}),
+    });
+  };
+
+  const prepareCheckOut = () => {
+    if (!pendingOutFile || pendingOutMeta?.latitude == null) {
+      setActionError('Ambil foto dari kamera terlebih dahulu.');
+      return;
+    }
+    if (dayContext?.attendance?.attendance_mode === 'wod') {
+      setSessionTodoTarget('wod');
+      return;
+    }
+    submitPunch('out');
+  };
+
+  const handleLateModalSubmit = (fields) => {
+    setPendingLateFields(fields);
+    setShowLateModal(false);
+    openIntentModal();
+  };
+
+  const submitSessionCheckIn = async (sessionType, file, meta) => {
+    if (sessionType !== 'lembur') return;
     const formData = new FormData();
     formData.append('foto_masuk', file);
     formData.append('latitude', String(meta.latitude));
     formData.append('longitude', String(meta.longitude));
-    if (reason) formData.append('reason', reason);
 
     setSessionLoading(true);
     setSessionError('');
     try {
-      const path = sessionType === 'lembur'
-        ? '/attendance-sessions/lembur/check-in'
-        : '/attendance-sessions/earned-ro/check-in';
-      await api.post(path, formData);
+      await api.post('/attendance-sessions/lembur/check-in', formData);
       await fetchDayContext();
-      setEarnedRoReason('');
     } catch (err) {
       setSessionError(err.response?.data?.message || 'Gagal clock in sesi');
     } finally {
@@ -459,6 +524,7 @@ export default function Riwayat() {
   };
 
   const submitSessionCheckOut = async (sessionType, file, meta, todoItems) => {
+    if (sessionType !== 'lembur') return;
     const formData = new FormData();
     formData.append('foto_keluar', file);
     formData.append('latitude', String(meta.latitude));
@@ -468,10 +534,7 @@ export default function Riwayat() {
     setSessionLoading(true);
     setSessionError('');
     try {
-      const path = sessionType === 'lembur'
-        ? '/attendance-sessions/lembur/check-out'
-        : '/attendance-sessions/earned-ro/check-out';
-      await api.post(path, formData);
+      await api.post('/attendance-sessions/lembur/check-out', formData);
       await fetchDayContext();
       await fetchBalances();
       setSessionTodoTarget(null);
@@ -486,26 +549,16 @@ export default function Riwayat() {
     const key = cameraTarget?.key;
     setCameraTarget(null);
 
-    if (key === 'session_lembur_in' || key === 'session_earned_ro_in') {
-      const sessionType = key === 'session_lembur_in' ? 'lembur' : 'earned_replace_off';
+    if (key === 'session_lembur_in') {
       if (!file) return;
-      if (sessionType === 'earned_replace_off' && !earnedRoReason.trim()) {
-        setSessionError('Isi alasan bekerja di hari libur terlebih dahulu');
-        return;
-      }
-      submitSessionCheckIn(
-        sessionType === 'lembur' ? 'lembur' : 'earned-ro',
-        file,
-        meta,
-        earnedRoReason
-      );
+      submitSessionCheckIn('lembur', file, meta);
       return;
     }
 
-    if (key === 'session_lembur_out' || key === 'session_earned_ro_out') {
+    if (key === 'session_lembur_out') {
       setPendingSessionFile(file || null);
       setPendingSessionMeta(meta || null);
-      setSessionTodoTarget(key === 'session_lembur_out' ? 'lembur' : 'earned_replace_off');
+      setSessionTodoTarget('lembur');
       return;
     }
 
@@ -610,14 +663,18 @@ export default function Riwayat() {
   const canCheckIn = selectedIsToday && !selectedRecord?.clockIn && !isLockedByLeave;
   const canCheckOut = selectedIsToday && selectedRecord?.clockIn && !selectedRecord?.clockOut && !isLockedByLeave;
   const activeSession = dayContext?.active_session || null;
-  const canStartLembur = selectedIsToday && selectedRecord?.clockOut && !activeSession && !dayContext?.is_off_day;
-  const canStartEarnedRo = selectedIsToday && dayContext?.is_off_day && !activeSession;
+  const todayAttendanceMode = dayContext?.attendance?.attendance_mode;
+  const canStartLembur = selectedIsToday && selectedRecord?.clockOut && !activeSession && !dayContext?.is_off_day
+    && (todayAttendanceMode === 'regular' || !todayAttendanceMode);
   const canSessionCheckOut = selectedIsToday && activeSession?.status === 'in_progress';
 
   const handleSessionTodoSubmit = ({ todo_items }) => {
+    if (sessionTodoTarget === 'wod') {
+      submitPunch('out', null, todo_items);
+      return;
+    }
     if (!pendingSessionFile || !pendingSessionMeta) return;
-    const apiType = sessionTodoTarget === 'lembur' ? 'lembur' : 'earned-ro';
-    submitSessionCheckOut(apiType, pendingSessionFile, pendingSessionMeta, todo_items);
+    submitSessionCheckOut('lembur', pendingSessionFile, pendingSessionMeta, todo_items);
     setPendingSessionFile(null);
     setPendingSessionMeta(null);
   };
@@ -765,6 +822,26 @@ export default function Riwayat() {
                   </span>
                 </div>
 
+                {(selectedRecord?.modeLocationLabel || selectedRecord?.approvalPending || selectedRecord?.approvalStatus === 'Pending_Supervisor') && (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedRecord?.modeLocationLabel ? (
+                      <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-bold text-blue-800">
+                        {selectedRecord.modeLocationLabel}
+                      </span>
+                    ) : null}
+                    {(selectedRecord?.approvalPending || selectedRecord?.approvalStatus === 'Pending_Supervisor') ? (
+                      <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-800">
+                        Menunggu persetujuan SPV
+                      </span>
+                    ) : null}
+                    {selectedRecord?.approvalStatus === 'disetujui' && selectedRecord?.attendanceMode !== 'regular' ? (
+                      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-800">
+                        Disetujui SPV
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+
                 {selectedIsToday && isLockedByLeave && (
                   <div className="rounded-[16px] border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12px] text-amber-800">
                     <span className="font-bold">Absensi terkunci.</span>{' '}
@@ -827,7 +904,7 @@ export default function Riwayat() {
                         <button
                           type="button"
                           disabled={!pendingInFile || actionLoading}
-                          onClick={() => submitPunch('in')}
+                          onClick={prepareCheckIn}
                           className="w-full py-3 rounded-[16px] bg-navy-950 text-white text-[13px] font-black disabled:opacity-60"
                         >
                           {actionLoading ? 'Mengirim…' : 'Simpan Absen Masuk'}
@@ -861,7 +938,7 @@ export default function Riwayat() {
                         <button
                           type="button"
                           disabled={!pendingOutFile || actionLoading}
-                          onClick={() => submitPunch('out')}
+                          onClick={prepareCheckOut}
                           className="w-full py-3 rounded-[16px] bg-navy-950 text-white text-[13px] font-black disabled:opacity-60"
                         >
                           {actionLoading ? 'Mengirim…' : 'Simpan Absen Keluar'}
@@ -884,7 +961,7 @@ export default function Riwayat() {
                   <div className={`flex flex-col gap-2 pt-2 border-t border-slate-100 ${showSessionsPanel ? 'ring-2 ring-violet-200 rounded-2xl p-3' : ''}`}>
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-extrabold text-navy-950 uppercase tracking-wider">
-                        Sesi Lembur &amp; Earned RO
+                        Sesi Lembur
                       </span>
                       <span className="text-[10px] text-slate-500 font-bold">
                         Lembur {balances.overtime_hours}j · RO {balances.replace_off_hours}j
@@ -893,16 +970,14 @@ export default function Riwayat() {
                     {activeSession ? (
                       <div className="rounded-[16px] border border-violet-200 bg-violet-50 px-3.5 py-3">
                         <p className="text-[12px] font-bold text-violet-900">
-                          Sesi {activeSession.session_type === 'lembur' ? 'Lembur' : 'Earned RO'} aktif
+                          Sesi Lembur aktif
                         </p>
                         {canSessionCheckOut && (
                           <button
                             type="button"
                             disabled={sessionLoading}
                             onClick={() => setCameraTarget({
-                              key: activeSession.session_type === 'lembur'
-                                ? 'session_lembur_out'
-                                : 'session_earned_ro_out',
+                              key: 'session_lembur_out',
                               label: 'Foto Clock Out Sesi',
                             })}
                             className="mt-2 w-full py-2.5 rounded-xl bg-violet-600 text-white text-[12px] font-black disabled:opacity-60"
@@ -923,30 +998,14 @@ export default function Riwayat() {
                             Clock In Lembur
                           </button>
                         )}
-                        {canStartEarnedRo && (
-                          <>
-                            <textarea
-                              value={earnedRoReason}
-                              onChange={(e) => setEarnedRoReason(e.target.value)}
-                              rows={2}
-                              placeholder="Alasan bekerja di hari libur (wajib)"
-                              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                            />
-                            <button
-                              type="button"
-                              disabled={sessionLoading || !earnedRoReason.trim()}
-                              onClick={() => setCameraTarget({ key: 'session_earned_ro_in', label: 'Clock In Earned RO' })}
-                              className="w-full py-2.5 rounded-xl border border-blue-300 text-blue-800 text-[12px] font-black bg-blue-50 disabled:opacity-60"
-                            >
-                              Clock In Earned Replace Off
-                            </button>
-                          </>
-                        )}
-                        {!canStartLembur && !canStartEarnedRo && (
+                        {!canStartLembur && !activeSession && !dayContext?.is_off_day && (
                           <p className="text-[11px] text-slate-500 text-center">
-                            {dayContext?.is_off_day
-                              ? 'Mulai sesi Earned RO di atas'
-                              : 'Selesaikan absen keluar reguler untuk membuka Lembur'}
+                            Selesaikan absen keluar reguler (Harian) untuk membuka Lembur
+                          </p>
+                        )}
+                        {dayContext?.is_off_day && !selectedRecord?.clockIn && (
+                          <p className="text-[11px] text-amber-700 text-center">
+                            Hari libur — absen masuk sebagai WOD untuk kerja hari ini
                           </p>
                         )}
                       </>
@@ -1358,15 +1417,35 @@ export default function Riwayat() {
 
       <SessionTodoModal
         open={Boolean(sessionTodoTarget)}
-        title={sessionTodoTarget === 'lembur' ? 'Selesaikan Lembur' : 'Selesaikan Earned RO'}
+        title={
+          sessionTodoTarget === 'lembur'
+            ? 'Selesaikan Lembur'
+            : sessionTodoTarget === 'wod'
+              ? 'Selesaikan WOD'
+              : 'To-do Pekerjaan'
+        }
         onClose={() => {
           setSessionTodoTarget(null);
           setPendingSessionFile(null);
           setPendingSessionMeta(null);
         }}
         onSubmit={handleSessionTodoSubmit}
-        loading={sessionLoading}
-        error={sessionError}
+        loading={sessionLoading || actionLoading}
+        error={sessionError || actionError}
+      />
+
+      <AttendanceIntentModal
+        open={intentModalOpen}
+        punchContext={punchContext}
+        onClose={() => {
+          if (!actionLoading) {
+            setIntentModalOpen(false);
+            setIntentError('');
+          }
+        }}
+        onConfirm={handleIntentConfirm}
+        submitting={actionLoading}
+        error={intentError}
       />
     </div>
   );

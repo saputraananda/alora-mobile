@@ -43,6 +43,7 @@ export async function appendReplaceOffLedger({
   employeeId,
   sessionId = null,
   leaveId = null,
+  attendanceId = null,
   mutationType,
   hours,
   note = null,
@@ -53,9 +54,9 @@ export async function appendReplaceOffLedger({
 
   const [result] = await aloraMobilePool.query(
     `INSERT INTO tr_replace_off_ledger
-       (employee_id, session_id, leave_id, mutation_type, hours, balance_after, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [employeeId, sessionId, leaveId, mutationType, Math.abs(Number(hours)), balanceAfter, note]
+       (employee_id, session_id, leave_id, attendance_id, mutation_type, hours, balance_after, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [employeeId, sessionId, leaveId, attendanceId, mutationType, Math.abs(Number(hours)), balanceAfter, note]
   );
   return { id: result.insertId, balanceAfter };
 }

@@ -4,6 +4,13 @@ import axios from 'axios';
 import { ArrowLeft, FileText, Plus } from 'lucide-react';
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 import { countLeaveDaysClient } from '../utils/countLeaveDays.js';
+import {
+  computeIzinFundingClient,
+  computeLeaveDurationHoursClient,
+  formatTimeHHmm,
+  isPartialDurationType,
+  todayStrJakarta,
+} from '../utils/leaveTimeClient.js';
 
 const api = axios.create({
   baseURL: '/api',
@@ -28,7 +35,7 @@ const LEAVE_TYPES = [
   {
     key: 'sakit',
     label: 'Sakit',
-    desc: 'Wajib sertakan surat dokter',
+    desc: 'Surat dokter opsional (SKD jika dilampirkan)',
     color: '#EF4444',
     bg: '#FEF2F2',
   },
@@ -45,18 +52,19 @@ const DURATION_TYPES = [
   {
     key: 'full_day',
     label: 'Seharian Penuh',
-    desc: 'Tidak masuk seharian — absensi terkunci',
+    desc: 'Jam mengikuti jadwal kerja hari tersebut',
   },
   {
-    key: 'half_day_morning',
-    label: 'Setengah Hari (Pagi)',
-    desc: 'Izin pagi; dicatat untuk administrasi',
+    key: 'partial',
+    label: 'Partial (pilih jam)',
+    desc: 'Isi jam mulai dan selesai secara bebas',
   },
-  {
-    key: 'half_day_afternoon',
-    label: 'Setengah Hari (Siang)',
-    desc: 'Izin siang; dicatat untuk administrasi',
-  },
+];
+
+const FUNDING_SOURCE_OPTIONS = [
+  { key: 'replace_off', label: 'Replace Off' },
+  { key: 'overtime', label: 'Akumulasi Lembur' },
+  { key: 'unpaid', label: 'Unpaid' },
 ];
 
 const STATUS_META = {
@@ -76,15 +84,22 @@ const MONTHS_ID = [
 ];
 const DURATION_LABEL = {
   full_day: 'Seharian Penuh',
-  half_day_morning: 'Setengah Hari – Pagi',
-  half_day_afternoon: 'Setengah Hari – Siang',
+  partial: 'Partial (pilih jam)',
+  half_day_morning: 'Partial (legacy pagi)',
+  half_day_afternoon: 'Partial (legacy siang)',
 };
 
+function formatFundingChips(item) {
+  if (item.leave_type !== 'izin') return null;
+  const chips = [];
+  if (Number(item.funding_ro_hours) > 0) chips.push(`RO ${item.funding_ro_hours}j`);
+  if (Number(item.funding_overtime_hours) > 0) chips.push(`Lembur ${item.funding_overtime_hours}j`);
+  if (Number(item.funding_unpaid_hours) > 0) chips.push(`Unpaid ${item.funding_unpaid_hours}j`);
+  return chips;
+}
+
 const fmt2 = (n) => String(n).padStart(2, '0');
-const todayStr = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${fmt2(d.getMonth() + 1)}-${fmt2(d.getDate())}`;
-};
+const todayStr = todayStrJakarta;
 const formatDateID = (str) => {
   if (!str) return '-';
   const d = new Date(`${String(str).slice(0, 10)}T00:00:00`);
@@ -115,13 +130,20 @@ function LeaveCard({ item, onCancel, onEdit, onViewDoctorNote }) {
   const sameDay =
     item.start_date === item.end_date
     || item.start_date?.slice(0, 10) === item.end_date?.slice(0, 10);
+  const timeLabel = item.start_time && item.end_time
+    ? `${formatTimeHHmm(item.start_time)}–${formatTimeHHmm(item.end_time)}`
+    : null;
+  const fundingChips = formatFundingChips(item);
+  const durationLabel = isPartialDurationType(item.duration_type)
+    ? DURATION_LABEL.partial
+    : (DURATION_LABEL[item.duration_type] || item.duration_type);
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,.06)]">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100" style={{ background: lt.bg }}>
         <div className="flex-1 min-w-0">
           <div className="text-[13px] font-bold" style={{ color: lt.color }}>{lt.label}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">{DURATION_LABEL[item.duration_type]}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">{durationLabel}</div>
         </div>
         <StatusBadge status={item.status} />
       </div>
@@ -131,6 +153,24 @@ function LeaveCard({ item, onCancel, onEdit, onViewDoctorNote }) {
             ? formatDateID(item.start_date)
             : `${formatDateID(item.start_date)} – ${formatDateID(item.end_date)}`}
         </div>
+        {timeLabel && (
+          <div className="text-[12px] text-slate-500">
+            Jam: {timeLabel}
+            {item.leave_duration_hours != null && ` (${item.leave_duration_hours} jam)`}
+          </div>
+        )}
+        {fundingChips?.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-1">
+            {fundingChips.map((chip) => (
+              <span
+                key={chip}
+                className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100"
+              >
+                {chip}
+              </span>
+            ))}
+          </div>
+        )}
         <div className="text-[12.5px] text-slate-600 line-clamp-2">{item.reason}</div>
         {item.doctor_note_file && (
           <button
@@ -215,6 +255,11 @@ export default function Perizinan() {
   const [reason, setReason] = useState('');
   const [doctorFile, setDoctorFile] = useState(null);
   const [doctorPreview, setDoctorPreview] = useState(null);
+  const [startTime, setStartTime] = useState('08:00');
+  const [endTime, setEndTime] = useState('12:00');
+  const [fundingSources, setFundingSources] = useState(['replace_off']);
+  const [fundingBalances, setFundingBalances] = useState(null);
+  const [workHoursPreview, setWorkHoursPreview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
 
@@ -269,8 +314,65 @@ export default function Perizinan() {
   }, [leaveType, startDate]);
 
   useEffect(() => {
-    if (durationType !== 'full_day') setEndDate(startDate);
+    if (durationType !== 'full_day' || isPartialDurationType(durationType)) {
+      setEndDate(startDate);
+    }
   }, [durationType, startDate]);
+
+  const isIzinToday = leaveType === 'izin' && startDate === todayStr();
+  const isPartialMode = durationType === 'partial' || isPartialDurationType(durationType);
+  const showFullDayOption = !(leaveType === 'izin' && isIzinToday);
+
+  useEffect(() => {
+    if (isIzinToday && durationType === 'full_day') {
+      setDurationType('partial');
+    }
+  }, [isIzinToday, durationType]);
+
+  useEffect(() => {
+    if (!formOpen || leaveType !== 'izin') {
+      setFundingBalances(null);
+      return;
+    }
+    api.get('/leave/funding-balances')
+      .then(({ data }) => setFundingBalances(data))
+      .catch(() => setFundingBalances(null));
+  }, [formOpen, leaveType]);
+
+  useEffect(() => {
+    if (!formOpen || durationType !== 'full_day' || isPartialMode) {
+      setWorkHoursPreview(null);
+      return;
+    }
+    api.get('/leave/work-hours', { params: { date: startDate } })
+      .then(({ data }) => setWorkHoursPreview(data))
+      .catch(() => setWorkHoursPreview(null));
+  }, [formOpen, durationType, isPartialMode, startDate]);
+
+  const previewDurationHours = useMemo(() => {
+    if (durationType === 'full_day' && workHoursPreview) {
+      return computeLeaveDurationHoursClient(workHoursPreview.start_time, workHoursPreview.end_time);
+    }
+    if (isPartialMode) {
+      return computeLeaveDurationHoursClient(startTime, endTime);
+    }
+    return 0;
+  }, [durationType, workHoursPreview, isPartialMode, startTime, endTime]);
+
+  const fundingPreview = useMemo(() => {
+    if (leaveType !== 'izin' || previewDurationHours <= 0) return null;
+    return computeIzinFundingClient({
+      durationHours: previewDurationHours,
+      sources: fundingSources,
+      roBalance: fundingBalances?.replace_off_hours,
+      overtimeBalance: fundingBalances?.overtime_hours,
+    });
+  }, [leaveType, previewDurationHours, fundingSources, fundingBalances]);
+
+  const izinSubmitBlocked = leaveType === 'izin' && (
+    fundingSources.length === 0
+    || (fundingPreview?.uncovered > 0)
+  );
 
   const fetchAnnualBalance = useCallback(async () => {
     setLoadingAnnualBalance(true);
@@ -332,9 +434,12 @@ export default function Perizinan() {
   const openNew = () => {
     setEditTarget(null);
     setLeaveType('izin');
-    setDurationType('full_day');
+    setDurationType('partial');
     setStartDate(todayStr());
     setEndDate(todayStr());
+    setStartTime('08:00');
+    setEndTime('12:00');
+    setFundingSources(['replace_off', 'unpaid']);
     setReason('');
     setDoctorFile(null);
     setDoctorPreview(null);
@@ -345,9 +450,17 @@ export default function Perizinan() {
   const openEdit = async (item) => {
     setEditTarget(item);
     setLeaveType(item.leave_type);
-    setDurationType(item.duration_type);
+    const dt = isPartialDurationType(item.duration_type) ? 'partial' : item.duration_type;
+    setDurationType(dt);
     setStartDate(item.start_date?.slice(0, 10) || todayStr());
     setEndDate(item.end_date?.slice(0, 10) || todayStr());
+    setStartTime(formatTimeHHmm(item.start_time) || '08:00');
+    setEndTime(formatTimeHHmm(item.end_time) || '12:00');
+    setFundingSources(
+      Array.isArray(item.funding_sources) && item.funding_sources.length
+        ? item.funding_sources
+        : ['replace_off', 'unpaid']
+    );
     setReason(item.reason || '');
     setDoctorFile(null);
     setSubmitError(null);
@@ -383,12 +496,12 @@ export default function Perizinan() {
       setSubmitError('Keterangan wajib diisi minimal 5 karakter.');
       return;
     }
-    if (leaveType === 'sakit' && !doctorFile && !editTarget?.doctor_note_file) {
-      setSubmitError('Foto surat dokter wajib dilampirkan untuk izin sakit.');
-      return;
-    }
     if (cutiSubmitBlocked) {
       setSubmitError('Cuti tahunan tersedia setelah 1 tahun kerja.');
+      return;
+    }
+    if (izinSubmitBlocked) {
+      setSubmitError('Pilih sumber izin dan pastikan saldo mencukupi (centang Unpaid untuk sisa jam).');
       return;
     }
 
@@ -400,6 +513,13 @@ export default function Perizinan() {
       formData.append('start_date', startDate);
       formData.append('end_date', endDate);
       formData.append('reason', reason.trim());
+      if (isPartialMode) {
+        formData.append('start_time', startTime);
+        formData.append('end_time', endTime);
+      }
+      if (leaveType === 'izin') {
+        formData.append('funding_sources', JSON.stringify(fundingSources));
+      }
       if (doctorFile) formData.append('doctor_note', doctorFile);
 
       if (editTarget) {
@@ -628,7 +748,7 @@ export default function Perizinan() {
               <div>
                 <label className="block text-[12px] font-semibold text-slate-600 mb-2">Durasi</label>
                 <div className="space-y-2">
-                  {DURATION_TYPES.map((dt) => (
+                  {DURATION_TYPES.filter((dt) => dt.key !== 'full_day' || showFullDayOption).map((dt) => (
                     <button
                       key={dt.key}
                       type="button"
@@ -646,7 +766,83 @@ export default function Perizinan() {
                     </button>
                   ))}
                 </div>
+                {isIzinToday && (
+                  <p className="text-[11px] text-amber-700 mt-2">
+                    Izin hari ini hanya partial (isi jam). Full day untuk tanggal selain hari ini.
+                  </p>
+                )}
               </div>
+
+              {(durationType === 'full_day' && workHoursPreview) && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[12px] text-slate-600">
+                  Jam kerja: {workHoursPreview.start_time}–{workHoursPreview.end_time}
+                  {previewDurationHours > 0 && ` (${previewDurationHours} jam)`}
+                </div>
+              )}
+
+              {isPartialMode && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Jam Mulai</label>
+                    <input
+                      type="time"
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[13px] bg-slate-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">Jam Selesai</label>
+                    <input
+                      type="time"
+                      value={endTime}
+                      onChange={(e) => setEndTime(e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[13px] bg-slate-50"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {leaveType === 'izin' && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 space-y-3">
+                  <div>
+                    <p className="text-[13px] font-bold text-blue-900">Sumber izin</p>
+                    <p className="text-[11px] text-blue-700 mt-0.5">
+                      Saldo RO: {fundingBalances?.replace_off_hours ?? '…'} jam · Lembur: {fundingBalances?.overtime_hours ?? '…'} jam
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    {FUNDING_SOURCE_OPTIONS.map((opt) => (
+                      <label key={opt.key} className="flex items-center gap-2 text-[12.5px] text-blue-900">
+                        <input
+                          type="checkbox"
+                          checked={fundingSources.includes(opt.key)}
+                          onChange={(e) => {
+                            setFundingSources((prev) => {
+                              if (e.target.checked) return [...prev, opt.key];
+                              return prev.filter((s) => s !== opt.key);
+                            });
+                          }}
+                          className="rounded border-blue-300"
+                        />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+                  {fundingPreview && previewDurationHours > 0 && (
+                    <div className="text-[11px] text-blue-800 space-y-0.5 border-t border-blue-200 pt-2">
+                      <div>Potong RO: {fundingPreview.funding_ro_hours} jam</div>
+                      <div>Potong Lembur: {fundingPreview.funding_overtime_hours} jam</div>
+                      <div>Unpaid: {fundingPreview.funding_unpaid_hours} jam</div>
+                      {fundingPreview.uncovered > 0 && (
+                        <div className="text-red-600 font-semibold">
+                          Saldo tidak cukup ({fundingPreview.uncovered} jam) — centang Unpaid
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {leaveType === 'cuti' && (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 space-y-1">
@@ -694,7 +890,7 @@ export default function Perizinan() {
                   <input
                     type="date"
                     value={startDate}
-                    min={todayStr()}
+                    min={leaveType === 'izin' ? undefined : todayStr()}
                     onChange={(e) => setStartDate(e.target.value)}
                     className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[13px] bg-slate-50"
                   />
@@ -731,7 +927,8 @@ export default function Perizinan() {
               {leaveType === 'sakit' && (
                 <div>
                   <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">
-                    Foto Surat Dokter <span className="text-red-500">*</span>
+                    Foto Surat Dokter
+                    <span className="text-slate-400 font-normal"> (opsional — jika ada, status Sakit SKD)</span>
                   </label>
                   {doctorPreview && (
                     <div className="mb-2 rounded-xl overflow-hidden border border-slate-200">
@@ -763,7 +960,7 @@ export default function Perizinan() {
 
               <button
                 type="submit"
-                disabled={submitting || cutiSubmitBlocked}
+                disabled={submitting || cutiSubmitBlocked || izinSubmitBlocked}
                 className="w-full py-3 rounded-[16px] bg-navy-950 text-white text-[13.5px] font-bold disabled:opacity-60"
               >
                 {submitting ? 'Mengirim…' : editTarget ? 'Simpan Perubahan' : 'Kirim Pengajuan'}
