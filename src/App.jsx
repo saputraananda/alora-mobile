@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import SplashScreen from './components/SplashScreen.jsx';
 import MobileContainer from './components/MobileContainer.jsx';
@@ -25,21 +25,22 @@ function readSplashVisible() {
   }
 }
 
+function readStoredSessionUser() {
+  try {
+    const token = localStorage.getItem('alora_auth_token')
+      || localStorage.getItem('alora_token')
+      || sessionStorage.getItem('alora_auth_token');
+    const userRaw = localStorage.getItem('alora_user') || sessionStorage.getItem('alora_user');
+    if (!token || !userRaw) return null;
+    return JSON.parse(userRaw);
+  } catch {
+    return null;
+  }
+}
+
 function App() {
   const [showSplash, setShowSplash] = useState(readSplashVisible);
-  const [user, setUser] = useState(null);
-
-  useEffect(() => {
-    const storedToken = localStorage.getItem('alora_auth_token') || localStorage.getItem('alora_token') || sessionStorage.getItem('alora_auth_token');
-    const storedUser = localStorage.getItem('alora_user') || sessionStorage.getItem('alora_user');
-    if (storedToken && storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (e) {
-        console.error('Error parsing stored user data:', e);
-      }
-    }
-  }, []);
+  const [user, setUser] = useState(readStoredSessionUser);
 
   const handleLoginSuccess = (userData) => {
     setUser(userData);
