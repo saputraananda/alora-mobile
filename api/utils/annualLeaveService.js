@@ -1,13 +1,11 @@
 import { aloraMobilePool, mainPool } from '../db/pool.js';
-import { addDaysDateString, isOffDay, todayDateStringJakarta } from './workScheduleRules.js';
+import { addDaysDateString, isOffDay, todayDateStringJakarta, toDateOnlyJakarta } from './workScheduleRules.js';
 
 const ANNUAL_GRANT_DAYS = 12;
 const PENDING_STATUSES = ['Pending_Supervisor', 'Pending_HRD'];
 
 function toDateOnly(value) {
-  if (!value) return null;
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).slice(0, 10);
+  return toDateOnlyJakarta(value);
 }
 
 export function addYearsDateString(dateStr, years) {

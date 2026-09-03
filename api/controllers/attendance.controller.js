@@ -8,6 +8,9 @@ import {
   computeLateMinutesFromClockIn,
   getLateToleranceDateTime,
   todayDateStringJakarta,
+  toDateOnlyJakarta,
+  getWorkScheduleForDate,
+  isOffDay,
 } from '../utils/workScheduleRules.js';
 import { getOvertimeBalance, getReplaceOffBalance } from '../utils/ledgerService.js';
 import { getEmployeeDayContext, getEmployeeMonthFinalStatuses } from '../utils/attendanceStatusResolver.js';
@@ -24,7 +27,6 @@ import {
   resolveSuggestedMode,
   validateTodoItems,
 } from '../utils/attendanceModeRules.js';
-import { getWorkScheduleForDate, isOffDay } from '../utils/workScheduleRules.js';
 
 const HO_LOCATION_CODE = 'HO-ALR';
 const ABSEN_RADIUS_KM = 2;
@@ -50,16 +52,7 @@ function todayDateString() {
   return todayDateStringJakarta();
 }
 
-function toDateOnly(value) {
-  if (!value) return null;
-  if (value instanceof Date) {
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, '0');
-    const d = String(value.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  return String(value).slice(0, 10);
-}
+const toDateOnly = toDateOnlyJakarta;
 
 function parseCoordinate(value) {
   if (value === null || value === undefined || value === '') return null;

@@ -20,6 +20,7 @@ import {
   resolveIzinFundingForSubmit,
   resolveLeaveTimes,
 } from '../utils/leaveTimeRules.js';
+import { todayDateStringJakarta, toDateOnlyJakarta } from '../utils/workScheduleRules.js';
 
 const LEAVE_BASE = path.join(getBaseUploadDir(), 'leave');
 
@@ -47,22 +48,10 @@ const ACTIVE_LEAVE_STATUSES = ['Pending_Supervisor', 'Pending_HRD', 'disetujui']
 const EDITABLE_LEAVE_STATUSES = ['Pending_Supervisor', 'Rejected_Supervisor', 'Rejected_HRD'];
 
 function todayDateString() {
-  const now = new Date();
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const jakarta = new Date(utc + 7 * 60 * 60000);
-  return jakarta.toISOString().slice(0, 10);
+  return todayDateStringJakarta();
 }
 
-function toDateOnly(value) {
-  if (!value) return null;
-  if (value instanceof Date) {
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, '0');
-    const d = String(value.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  return String(value).slice(0, 10);
-}
+const toDateOnly = toDateOnlyJakarta;
 
 function sanitizeName(value) {
   return String(value || '')

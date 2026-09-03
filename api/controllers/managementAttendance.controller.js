@@ -4,6 +4,7 @@ import multer from 'multer';
 import sharp from 'sharp';
 import { aloraMobilePool } from '../db/pool.js';
 import { getBaseUploadDir } from '../middleware/upload.js';
+import { todayDateStringJakarta, toDateOnlyJakarta } from '../utils/workScheduleRules.js';
 
 const MANAGEMENT_LOCATION_LABEL = 'Alora Management';
 const ATTENDANCE_BASE = path.join(getBaseUploadDir(), 'attendance');
@@ -22,22 +23,10 @@ const upload = multer({
 export const selfieUploadMiddleware = upload.single('selfie');
 
 function todayDateString() {
-  const now = new Date();
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const jakarta = new Date(utc + 7 * 60 * 60000);
-  return jakarta.toISOString().slice(0, 10);
+  return todayDateStringJakarta();
 }
 
-function toDateOnly(value) {
-  if (!value) return null;
-  if (value instanceof Date) {
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, '0');
-    const d = String(value.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  return String(value).slice(0, 10);
-}
+const toDateOnly = toDateOnlyJakarta;
 
 async function compressToJpg(buffer) {
   return sharp(buffer)

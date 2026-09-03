@@ -1,5 +1,5 @@
 import { aloraMobilePool } from '../db/pool.js';
-import { isOffDay } from './workScheduleRules.js';
+import { isOffDay, toDateOnlyJakarta } from './workScheduleRules.js';
 
 export const FINAL_STATUS_PRIORITY = [
   'CUTI',
@@ -188,7 +188,7 @@ export async function getEmployeeMonthFinalStatuses(employeeId, startDate, endDa
   );
 
   const attendanceByDate = new Map(
-    attendanceRows.map((r) => [String(r.attendance_date).slice(0, 10), r])
+    attendanceRows.map((r) => [toDateOnlyJakarta(r.attendance_date), r])
   );
 
   const result = {};

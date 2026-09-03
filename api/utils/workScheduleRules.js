@@ -20,6 +20,23 @@ export function addDaysDateString(dateStr, days) {
   return d.toISOString().slice(0, 10);
 }
 
+/** MySQL DATE/DATETIME → YYYY-MM-DD in Asia/Jakarta (avoids UTC off-by-one). */
+export function toDateOnlyJakarta(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'string') {
+    const s = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  }
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
 export async function getWorkScheduleForDay(dayOfWeek) {
   const [rows] = await aloraMobilePool.query(
     `SELECT day_of_week, start_time, end_time, work_hours, late_tolerance_time, is_working_day

@@ -4,7 +4,7 @@ import multer from 'multer';
 import sharp from 'sharp';
 import { aloraMobilePool, mainPool } from '../db/pool.js';
 import { getBaseUploadDir } from '../middleware/upload.js';
-import { todayDateStringJakarta } from '../utils/workScheduleRules.js';
+import { todayDateStringJakarta, toDateOnlyJakarta } from '../utils/workScheduleRules.js';
 import {
   SESSION_TYPES,
   assertCanStartEarnedRo,
@@ -48,14 +48,7 @@ async function getRequesterJobContext(employeeId) {
 }
 
 function toDateOnly(value) {
-  if (!value) return null;
-  if (value instanceof Date) {
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, '0');
-    const d = String(value.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  return String(value).slice(0, 10);
+  return toDateOnlyJakarta(value);
 }
 
 function parseCoordinate(value) {
