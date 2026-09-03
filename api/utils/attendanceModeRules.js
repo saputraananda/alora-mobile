@@ -18,23 +18,19 @@ export function resolveSuggestedMode({ isOffDay, insideRadius }) {
 
 export function getAllowedModes(isOffDay) {
   if (isOffDay) return [ATTENDANCE_MODES.WOD];
-  return [ATTENDANCE_MODES.REGULAR, ATTENDANCE_MODES.WFA];
+  return [ATTENDANCE_MODES.REGULAR, ATTENDANCE_MODES.WFA, ATTENDANCE_MODES.WOD];
 }
 
 export function assertModeAllowedForDay({ isOffDay, attendanceMode }) {
   const mode = String(attendanceMode || '').trim();
-  if (isOffDay && mode !== ATTENDANCE_MODES.WOD) {
-    const error = new Error('Hari ini libur. Pilih Work on Day Off (WOD).');
-    error.statusCode = 422;
-    throw error;
-  }
-  if (!isOffDay && mode === ATTENDANCE_MODES.WOD) {
-    const error = new Error('WOD hanya untuk hari libur.');
-    error.statusCode = 422;
-    throw error;
-  }
   if (![ATTENDANCE_MODES.REGULAR, ATTENDANCE_MODES.WFA, ATTENDANCE_MODES.WOD].includes(mode)) {
     const error = new Error('attendance_mode tidak valid');
+    error.statusCode = 422;
+    throw error;
+  }
+  // WOD diizinkan setiap hari. Di hari libur hanya WOD yang boleh.
+  if (isOffDay && mode !== ATTENDANCE_MODES.WOD) {
+    const error = new Error('Hari ini libur. Pilih Work on Day Off (WOD).');
     error.statusCode = 422;
     throw error;
   }
@@ -100,4 +96,4 @@ export function approvalStatusLabel(status) {
 }
 
 export const OFF_DAY_MESSAGE =
-  'Hari ini libur. Jika Anda bekerja, pilih WOD — jam disetujui masuk saldo Replace Off.';
+  'Hari ini libur. Absensi Harian/WFA tidak tersedia. Jika Anda bekerja, pilih Ini WOD — jam disetujui masuk saldo Replace Off.';
