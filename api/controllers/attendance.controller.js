@@ -16,7 +16,7 @@ import {
   assertModeReasonRequired,
   approvalStatusLabel,
   ATTENDANCE_MODES,
-  computeDurationHours,
+  durationHoursFromSeconds,
   derivePunchLocationContext,
   formatModeLocationLabel,
   getAllowedModes,
@@ -567,8 +567,12 @@ export const checkOutAttendance = async (req, res) => {
     const saved = await savePhoto(employeeId, today, 'foto_keluar', req.file);
 
     const punchContextOut = derivePunchLocationContext(insideRadius);
-    const clockOutNow = new Date();
-    const duration = computeDurationHours(existing.clock_in, clockOutNow);
+    const [[durationRow]] = await aloraMobilePool.query(
+      `SELECT TIMESTAMPDIFF(SECOND, clock_in, NOW()) AS duration_sec
+       FROM tr_worker_attendance WHERE id = ? LIMIT 1`,
+      [existing.id]
+    );
+    const duration = durationHoursFromSeconds(durationRow?.duration_sec);
     if (duration.error) {
       return res.status(400).json({ message: duration.error });
     }

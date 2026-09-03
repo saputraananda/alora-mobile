@@ -68,10 +68,42 @@ export function validateTodoItems(raw) {
   return { items: cleaned };
 }
 
+export function durationHoursFromSeconds(sec) {
+  const n = Number(sec);
+  if (!Number.isFinite(n) || n < 0) {
+    return { error: 'Durasi absensi tidak valid' };
+  }
+  if (n === 0) {
+    return { durationHours: 0.01 };
+  }
+  return { durationHours: Math.round((n / 3600) * 100) / 100 };
+}
+
+function toJakartaEpochMs(value) {
+  if (value == null) return NaN;
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isNaN(t) ? NaN : t;
+  }
+  const raw = String(value).trim();
+  if (!raw) return NaN;
+  // MySQL DATETIME / TIMESTAMP string without offset → treat as WIB
+  const normalized = raw.includes('T')
+    ? raw
+    : raw.replace(' ', 'T');
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(normalized)) {
+    return new Date(normalized).getTime();
+  }
+  const withOffset = normalized.length === 10
+    ? `${normalized}T00:00:00+07:00`
+    : `${normalized}+07:00`;
+  return new Date(withOffset).getTime();
+}
+
 export function computeDurationHours(clockIn, clockOut) {
-  const start = clockIn instanceof Date ? clockIn : new Date(clockIn);
-  const end = clockOut instanceof Date ? clockOut : new Date(clockOut);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+  const start = toJakartaEpochMs(clockIn);
+  const end = toJakartaEpochMs(clockOut);
+  if (Number.isNaN(start) || Number.isNaN(end) || end <= start) {
     return { error: 'Durasi absensi tidak valid' };
   }
   const hours = Math.round(((end - start) / 3600000) * 100) / 100;

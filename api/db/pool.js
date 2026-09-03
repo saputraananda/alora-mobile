@@ -22,6 +22,7 @@ export const aloraMobilePool = mysql.createPool({
   user: process.env.DB_ALORA_MOBILE_USER,
   password: process.env.DB_ALORA_MOBILE_PASS,
   database: process.env.DB_ALORA_MOBILE_NAME,
+  timezone: '+07:00',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
