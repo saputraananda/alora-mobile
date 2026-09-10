@@ -63,18 +63,42 @@ export function computeDurationHours(workDate, startTime, endTime) {
   return { startAt, endAt, durationHours: hours };
 }
 
+export function validateTodoItems(raw) {
+  let items = raw;
+  if (typeof raw === 'string') {
+    try {
+      items = JSON.parse(raw);
+    } catch {
+      return { error: 'Format to-do list tidak valid' };
+    }
+  }
+  if (items == null) {
+    return { error: 'To-do list wajib diisi untuk pengajuan lembur' };
+  }
+  if (!Array.isArray(items)) {
+    return { error: 'To-do list harus berupa array' };
+  }
+  const cleaned = items
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+  if (cleaned.length < 1) {
+    return { error: 'Minimal 1 poin pekerjaan wajib diisi untuk lembur' };
+  }
+  if (cleaned.length > 20) {
+    return { error: 'Maksimal 20 poin pekerjaan' };
+  }
+  return { items: cleaned };
+}
+
 export function validateLemburRoPayload(payload) {
-  const requestType = String(payload.request_type || '').trim();
+  const requestType = String(payload.request_type || '').trim() || REQUEST_TYPES.LEMBUR;
   const workDate = toDateOnly(payload.work_date);
   const description = String(payload.description || '').trim();
-  const compensationType = payload.compensation_type
-    ? String(payload.compensation_type).trim()
-    : null;
-  const replacementDate = payload.replacement_date
-    ? toDateOnly(payload.replacement_date)
-    : null;
 
-  if (!Object.values(REQUEST_TYPES).includes(requestType)) {
+  if (requestType === REQUEST_TYPES.REPLACE_OFF) {
+    return { error: 'Pengajuan RO tidak tersedia di modul ini. Gunakan Perizinan.' };
+  }
+  if (requestType !== REQUEST_TYPES.LEMBUR) {
     return { error: 'Jenis pengajuan tidak valid' };
   }
   if (!workDate) {
@@ -89,50 +113,18 @@ export function validateLemburRoPayload(payload) {
     return { error: durationResult.error };
   }
 
-  if (requestType === REQUEST_TYPES.LEMBUR) {
-    return {
-      requestType,
-      workDate,
-      description,
-      compensationType: null,
-      replacementDate: null,
-      ...durationResult,
-    };
-  }
-
-  if (jakartaWeekday(workDate) === 0) {
-    return { error: 'Hari Minggu libur, tidak dapat diajukan RO' };
-  }
-
-  const weekday = jakartaWeekday(workDate);
-  if (weekday === 6 && durationResult.durationHours < 5) {
-    return { error: 'RO hari Sabtu minimal 5 jam kerja' };
-  }
-  if (weekday >= 1 && weekday <= 5 && durationResult.durationHours < 8) {
-    return { error: 'RO Senin–Jumat minimal 8 jam kerja' };
-  }
-
-  if (![COMPENSATION.GANTI_HARI, COMPENSATION.KOMPENSASI_TUNAI].includes(compensationType)) {
-    return { error: 'Tipe kompensasi RO wajib dipilih' };
-  }
-
-  if (compensationType === COMPENSATION.GANTI_HARI) {
-    if (!replacementDate) {
-      return { error: 'Tanggal hari pengganti wajib diisi' };
-    }
-    if (jakartaWeekday(replacementDate) === 0) {
-      return { error: 'Hari pengganti tidak boleh hari Minggu' };
-    }
-  } else if (replacementDate) {
-    return { error: 'Kompensasi tunai tidak memerlukan hari pengganti' };
+  const todoResult = validateTodoItems(payload.todo_items);
+  if (todoResult.error) {
+    return { error: todoResult.error };
   }
 
   return {
-    requestType,
+    requestType: REQUEST_TYPES.LEMBUR,
     workDate,
     description,
-    compensationType,
-    replacementDate: compensationType === COMPENSATION.GANTI_HARI ? replacementDate : null,
+    todoItems: todoResult.items,
+    compensationType: null,
+    replacementDate: null,
     ...durationResult,
   };
 }
