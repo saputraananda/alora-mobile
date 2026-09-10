@@ -10,12 +10,15 @@ import Login from './pages/auth/Login.jsx';
 import Home from './pages/Home.jsx';
 
 const Riwayat = lazy(() => import('./pages/Riwayat.jsx'));
+const LemburRo = lazy(() => import('./pages/LemburRo.jsx'));
+const Absensi = lazy(() => import('./pages/Absensi.jsx'));
 const Profil = lazy(() => import('./pages/Profil.jsx'));
 const EditProfile = lazy(() => import('./pages/EditProfile.jsx'));
 const Perizinan = lazy(() => import('./pages/Perizinan.jsx'));
 const Bugar = lazy(() => import('./pages/Bugar.jsx'));
 const BugarTracking = lazy(() => import('./pages/BugarTracking.jsx'));
 const ManagementAbsensi = lazy(() => import('./pages/ManagementAbsensi.jsx'));
+const Approvals = lazy(() => import('./pages/Approvals.jsx'));
 
 function readSplashVisible() {
   try {
@@ -82,6 +85,14 @@ function App() {
                 )}
               />
               <Route
+                path="/absensi"
+                element={(
+                  <ProtectedRoute user={user} showSplash={showSplash}>
+                    <Absensi />
+                  </ProtectedRoute>
+                )}
+              />
+              <Route
                 path="/profil"
                 element={(
                   <ProtectedRoute user={user} showSplash={showSplash}>
@@ -107,13 +118,25 @@ function App() {
               />
               <Route
                 path="/lembur-ro"
-                element={<Navigate to="/riwayat?panel=sessions" replace />}
+                element={(
+                  <ProtectedRoute user={user} showSplash={showSplash}>
+                    <LemburRo />
+                  </ProtectedRoute>
+                )}
               />
               <Route
                 path="/management-attendance"
                 element={(
                   <ProtectedRoute user={user} showSplash={showSplash}>
                     <ManagementAbsensi />
+                  </ProtectedRoute>
+                )}
+              />
+              <Route
+                path="/approval"
+                element={(
+                  <ProtectedRoute user={user} showSplash={showSplash}>
+                    <Approvals />
                   </ProtectedRoute>
                 )}
               />

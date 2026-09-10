@@ -6,6 +6,11 @@ import {
   createRequest,
   updateRequest,
   cancelRequest,
+  listPendingApprovals,
+  approveSupervisor,
+  rejectSupervisor,
+  approveHRD,
+  rejectHRD,
 } from '../controllers/lemburRo.controller.js';
 
 const router = Router();
@@ -15,6 +20,11 @@ router.use(requireEmployee);
 
 router.get('/list', listRequests);
 router.get('/stats', getStats);
+router.get('/pending-approvals', listPendingApprovals);
+router.post('/:id/supervisor-approve', approveSupervisor);
+router.post('/:id/supervisor-reject', rejectSupervisor);
+router.post('/:id/hrd-approve', approveHRD);
+router.post('/:id/hrd-reject', rejectHRD);
 router.post('/', createRequest);
 router.put('/:id', updateRequest);
 router.delete('/:id', cancelRequest);

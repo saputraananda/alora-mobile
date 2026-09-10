@@ -51,11 +51,14 @@ function mapLeaveToStatuses(leave) {
 
 function mapAttendanceToStatuses(attendance) {
   if (!attendance?.clock_in) return [];
-  if (attendance.attendance_mode === 'wod' && attendance.approval_status === 'disetujui') {
-    return ['EARNED_REPLACE_OFF'];
+  const gated = Boolean(attendance.mode_request_id);
+  if (attendance.attendance_mode === 'wod') {
+    if (gated && attendance.clock_out) return ['EARNED_REPLACE_OFF'];
+    if (attendance.approval_status === 'disetujui') return ['EARNED_REPLACE_OFF'];
   }
-  if (attendance.attendance_mode === 'wfa' && attendance.approval_status === 'disetujui') {
-    return ['WFA'];
+  if (attendance.attendance_mode === 'wfa') {
+    if (gated && attendance.clock_out) return ['WFA'];
+    if (attendance.approval_status === 'disetujui') return ['WFA'];
   }
   return ['HADIR'];
 }
@@ -98,6 +101,7 @@ export function resolveFinalStatus({
     attendance?.clock_in
     && (attendance.attendance_mode === 'wfa' || attendance.attendance_mode === 'wod')
     && attendance.approval_status === 'Pending_Supervisor'
+    && !attendance.mode_request_id
   ) {
     approval_pending = true;
   }
@@ -115,13 +119,19 @@ export function resolveFinalStatus({
   }
 
   let late_flag = null;
-  if (primary_status === 'HADIR' && attendance?.late_category) {
-    late_flag = attendance.late_category === 'planned' ? 'planned' : 'unexpected';
+  if (
+    primary_status === 'HADIR'
+    && (
+      (attendance?.late_minutes != null && Number(attendance.late_minutes) > 0)
+      || Boolean(String(attendance?.late_reason || '').trim())
+      || Boolean(attendance?.late_category)
+    )
+  ) {
+    late_flag = 'late';
   }
 
   const labels = [STATUS_LABELS[primary_status] || primary_status];
-  if (late_flag === 'planned') labels.push('Terlambat (Rencana)');
-  if (late_flag === 'unexpected') labels.push('Terlambat (Tidak Terduga)');
+  if (late_flag) labels.push('Terlambat');
   if (approval_pending) labels.push('Menunggu approval');
 
   return {

@@ -7,8 +7,12 @@ import { getBaseUploadDir } from '../middleware/upload.js';
 import {
   assertSufficientAnnualLeave,
   countLeaveDays,
+  deductAnnualLeaveForApprovedLeave,
   getAnnualLeaveBalance,
 } from '../utils/annualLeaveService.js';
+import { getApproverContext } from '../utils/approvalAccess.js';
+import { isRoOnlyIzin } from '../utils/leaveApprovalRules.js';
+import { applyLeaveFundingOnApprove } from '../utils/leaveFundingService.js';
 import { getOvertimeBalance, getReplaceOffBalance } from '../utils/ledgerService.js';
 import {
   assertIzinSameDayRules,
@@ -190,6 +194,14 @@ function resolveInitialStatus(jobLevelId) {
   }
   if (level <= 3) return 'Pending_HRD';
   return 'Pending_Supervisor';
+}
+
+function isRoOnlyIzinFunding({ leaveType, funding_ro_hours, funding_overtime_hours, funding_unpaid_hours }) {
+  if (leaveType !== 'izin') return false;
+  const ro = Number(funding_ro_hours || 0);
+  const ot = Number(funding_overtime_hours || 0);
+  const unpaid = Number(funding_unpaid_hours || 0);
+  return ro > 0 && ot === 0 && unpaid === 0;
 }
 
 async function getRequesterJobContext(employeeId) {
@@ -416,7 +428,6 @@ export const submitLeave = async (req, res) => {
       return res.status(403).json({ message: 'Data karyawan tidak ditemukan' });
     }
 
-    const initialStatus = resolveInitialStatus(requester.job_level_id);
     const departmentId = requester.department_id != null ? Number(requester.department_id) : null;
 
     const [overlap] = await aloraMobilePool.query(
@@ -453,6 +464,18 @@ export const submitLeave = async (req, res) => {
       endTime: req.body.end_time,
       fundingSourcesRaw: req.body.funding_sources,
     });
+
+    let initialStatus = resolveInitialStatus(requester.job_level_id);
+    if (
+      isRoOnlyIzinFunding({
+        leaveType: leave_type,
+        funding_ro_hours: timeFunding.funding_ro_hours,
+        funding_overtime_hours: timeFunding.funding_overtime_hours,
+        funding_unpaid_hours: timeFunding.funding_unpaid_hours,
+      })
+    ) {
+      initialStatus = 'Pending_Supervisor';
+    }
 
     const [result] = await aloraMobilePool.query(
       `INSERT INTO tr_worker_leaves
@@ -532,7 +555,6 @@ export const updateLeave = async (req, res) => {
     const newStartDate = start_date || toDateOnly(existing.start_date);
     const newEndDate = end_date || toDateOnly(existing.end_date);
     const newReason = reason ? String(reason).trim() : existing.reason;
-    const initialStatus = resolveInitialStatus(requester.job_level_id);
     const departmentId = requester.department_id != null ? Number(requester.department_id) : null;
 
     if (!ALLOWED_LEAVE_TYPES.has(newLeaveType)) {
@@ -597,6 +619,18 @@ export const updateLeave = async (req, res) => {
       endTime: req.body.end_time,
       fundingSourcesRaw: req.body.funding_sources,
     });
+
+    let initialStatus = resolveInitialStatus(requester.job_level_id);
+    if (
+      isRoOnlyIzinFunding({
+        leaveType: newLeaveType,
+        funding_ro_hours: timeFunding.funding_ro_hours,
+        funding_overtime_hours: timeFunding.funding_overtime_hours,
+        funding_unpaid_hours: timeFunding.funding_unpaid_hours,
+      })
+    ) {
+      initialStatus = 'Pending_Supervisor';
+    }
 
     await aloraMobilePool.query(
       `UPDATE tr_worker_leaves
@@ -671,5 +705,304 @@ export const cancelLeave = async (req, res) => {
   } catch (error) {
     console.error('[leave] cancelLeave', error);
     return res.status(500).json({ message: 'Gagal membatalkan pengajuan' });
+  }
+};
+
+async function getEmployeeNameMap(employeeIds) {
+  const uniqueIds = [...new Set(employeeIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
+  if (uniqueIds.length === 0) return new Map();
+  const placeholders = uniqueIds.map(() => '?').join(',');
+  const [rows] = await mainPool.query(
+    `SELECT employee_id, full_name FROM mst_employee
+     WHERE is_deleted = 0 AND employee_id IN (${placeholders})`,
+    uniqueIds
+  );
+  const map = new Map();
+  for (const row of rows) {
+    map.set(Number(row.employee_id), row.full_name || null);
+  }
+  return map;
+}
+
+export const listPendingApprovals = async (req, res) => {
+  try {
+    const ctx = await getApproverContext(req.employeeId);
+    if (!ctx?.canAccess) {
+      return res.status(403).json({ message: 'Hanya SPV atau HRD yang dapat melihat antrian' });
+    }
+
+    const where = [];
+    const params = [];
+
+    if (ctx.isSpv && ctx.isHrd) {
+      where.push(`(status = 'Pending_Supervisor' OR status = 'Pending_HRD')`);
+    } else if (ctx.isSpv) {
+      where.push(`status = 'Pending_Supervisor'`);
+    } else {
+      where.push(`status = 'Pending_HRD'`);
+    }
+
+    if (ctx.isSpv && !ctx.isHrd && ctx.departmentId != null) {
+      where.push('department_id = ?');
+      params.push(ctx.departmentId);
+    } else if (ctx.isSpv && ctx.isHrd && ctx.departmentId != null) {
+      where.push(`(
+        (status = 'Pending_HRD')
+        OR (status = 'Pending_Supervisor' AND department_id = ?)
+      )`);
+      params.push(ctx.departmentId);
+    }
+
+    const [rows] = await aloraMobilePool.query(
+      `SELECT * FROM tr_worker_leaves
+       WHERE ${where.join(' AND ')}
+       ORDER BY created_at ASC
+       LIMIT 200`,
+      params
+    );
+
+    const filtered = rows.filter((row) => {
+      if (Number(row.employee_id) === Number(req.employeeId)) return false;
+      if (row.status === 'Pending_Supervisor' && ctx.isSpv) {
+        if (ctx.departmentId != null && Number(row.department_id) !== ctx.departmentId) return false;
+        return true;
+      }
+      if (row.status === 'Pending_HRD' && ctx.isHrd) return true;
+      return false;
+    });
+
+    const nameMap = await getEmployeeNameMap(filtered.map((r) => r.employee_id));
+    return res.json({
+      can_approve: true,
+      items: filtered.map((row) => ({
+        ...row,
+        start_date: toDateOnly(row.start_date),
+        end_date: toDateOnly(row.end_date),
+        employee_name: nameMap.get(Number(row.employee_id)) || null,
+        action_role: row.status === 'Pending_HRD' ? 'hrd' : 'spv',
+      })),
+    });
+  } catch (error) {
+    console.error('[leave] listPendingApprovals', error);
+    return res.status(500).json({ message: 'Gagal mengambil antrian approval leave' });
+  }
+};
+
+export const approveSupervisor = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'ID tidak valid' });
+    }
+
+    const ctx = await getApproverContext(req.employeeId);
+    if (!ctx?.isSpv) {
+      return res.status(403).json({ message: 'Hanya supervisor yang dapat memberikan persetujuan' });
+    }
+
+    const [[leave]] = await aloraMobilePool.query(
+      'SELECT * FROM tr_worker_leaves WHERE id = ? LIMIT 1',
+      [id]
+    );
+    if (!leave) return res.status(404).json({ message: 'Pengajuan tidak ditemukan' });
+    if (Number(leave.employee_id) === Number(req.employeeId)) {
+      return res.status(403).json({ message: 'Tidak dapat menyetujui pengajuan sendiri' });
+    }
+    if (leave.status !== 'Pending_Supervisor') {
+      return res.status(400).json({ message: 'Status pengajuan tidak valid untuk persetujuan supervisor' });
+    }
+    if (ctx.departmentId != null && Number(leave.department_id) !== ctx.departmentId) {
+      return res.status(403).json({ message: 'Anda hanya dapat menyetujui pengajuan dari departemen Anda sendiri' });
+    }
+
+    if (isRoOnlyIzin(leave)) {
+      await aloraMobilePool.query(
+        `UPDATE tr_worker_leaves SET
+          status = 'disetujui',
+          supervisor_id = ?,
+          supervisor_approved_at = NOW(),
+          supervisor_rejection_reason = NULL,
+          approved_by = ?,
+          approved_by_name = ?,
+          approved_at = NOW(),
+          updated_at = NOW()
+         WHERE id = ?`,
+        [req.employeeId, req.employeeId, ctx.fullName, id]
+      );
+      await applyLeaveFundingOnApprove(leave);
+      return res.json({ message: 'Izin RO berhasil disetujui.' });
+    }
+
+    await aloraMobilePool.query(
+      `UPDATE tr_worker_leaves SET
+        status = 'Pending_HRD',
+        supervisor_id = ?,
+        supervisor_approved_at = NOW(),
+        supervisor_rejection_reason = NULL,
+        updated_at = NOW()
+       WHERE id = ?`,
+      [req.employeeId, id]
+    );
+    return res.json({ message: 'Persetujuan supervisor berhasil. Status diteruskan ke HRD.' });
+  } catch (error) {
+    console.error('[leave] approveSupervisor', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
+    return res.status(500).json({ message: 'Gagal melakukan approval supervisor' });
+  }
+};
+
+export const rejectSupervisor = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const reason = String(req.body?.reason || '').trim().slice(0, 1000);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'ID tidak valid' });
+    }
+    if (!reason) {
+      return res.status(400).json({ message: 'Alasan penolakan wajib diisi' });
+    }
+
+    const ctx = await getApproverContext(req.employeeId);
+    if (!ctx?.isSpv) {
+      return res.status(403).json({ message: 'Hanya supervisor yang dapat menolak pengajuan' });
+    }
+
+    const [[leave]] = await aloraMobilePool.query(
+      'SELECT * FROM tr_worker_leaves WHERE id = ? LIMIT 1',
+      [id]
+    );
+    if (!leave) return res.status(404).json({ message: 'Pengajuan tidak ditemukan' });
+    if (Number(leave.employee_id) === Number(req.employeeId)) {
+      return res.status(403).json({ message: 'Tidak dapat menolak pengajuan sendiri' });
+    }
+    if (leave.status !== 'Pending_Supervisor') {
+      return res.status(400).json({ message: 'Status pengajuan tidak valid untuk ditolak oleh supervisor' });
+    }
+    if (ctx.departmentId != null && Number(leave.department_id) !== ctx.departmentId) {
+      return res.status(403).json({ message: 'Anda hanya dapat menolak pengajuan dari departemen Anda sendiri' });
+    }
+
+    await aloraMobilePool.query(
+      `UPDATE tr_worker_leaves SET
+        status = 'Rejected_Supervisor',
+        supervisor_id = ?,
+        supervisor_rejection_reason = ?,
+        supervisor_approved_at = NULL,
+        rejection_note = ?,
+        updated_at = NOW()
+       WHERE id = ?`,
+      [req.employeeId, reason, reason, id]
+    );
+    return res.json({ message: 'Pengajuan berhasil ditolak oleh supervisor' });
+  } catch (error) {
+    console.error('[leave] rejectSupervisor', error);
+    return res.status(500).json({ message: 'Gagal melakukan penolakan supervisor' });
+  }
+};
+
+export const approveHRD = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'ID tidak valid' });
+    }
+
+    const ctx = await getApproverContext(req.employeeId);
+    if (!ctx?.isHrd) {
+      return res.status(403).json({ message: 'Hanya HRD yang dapat melakukan tindakan ini' });
+    }
+
+    const [[leave]] = await aloraMobilePool.query(
+      'SELECT * FROM tr_worker_leaves WHERE id = ? LIMIT 1',
+      [id]
+    );
+    if (!leave) return res.status(404).json({ message: 'Pengajuan tidak ditemukan' });
+    if (Number(leave.employee_id) === Number(req.employeeId)) {
+      return res.status(403).json({ message: 'Tidak dapat menyetujui pengajuan sendiri' });
+    }
+    if (leave.status !== 'Pending_HRD') {
+      return res.status(400).json({ message: 'Status pengajuan tidak valid untuk persetujuan HRD' });
+    }
+
+    await aloraMobilePool.query(
+      `UPDATE tr_worker_leaves SET
+        status = 'disetujui',
+        hrd_id = ?,
+        hrd_approved_at = NOW(),
+        hrd_rejection_reason = NULL,
+        rejection_note = NULL,
+        approved_by = ?,
+        approved_by_name = ?,
+        approved_at = NOW(),
+        updated_at = NOW()
+       WHERE id = ?`,
+      [req.employeeId, req.employeeId, ctx.fullName, id]
+    );
+
+    if (leave.leave_type === 'cuti') {
+      await deductAnnualLeaveForApprovedLeave(leave);
+    }
+    if (leave.leave_type === 'izin') {
+      await applyLeaveFundingOnApprove(leave);
+    }
+
+    return res.json({ message: 'Pengajuan berhasil disetujui HRD' });
+  } catch (error) {
+    console.error('[leave] approveHRD', error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
+    return res.status(500).json({ message: 'Gagal melakukan approval HRD' });
+  }
+};
+
+export const rejectHRD = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const reason = String(req.body?.reason || '').trim().slice(0, 1000);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'ID tidak valid' });
+    }
+    if (!reason) {
+      return res.status(400).json({ message: 'Alasan penolakan wajib diisi' });
+    }
+
+    const ctx = await getApproverContext(req.employeeId);
+    if (!ctx?.isHrd) {
+      return res.status(403).json({ message: 'Hanya HRD yang dapat menolak pengajuan' });
+    }
+
+    const [[leave]] = await aloraMobilePool.query(
+      'SELECT * FROM tr_worker_leaves WHERE id = ? LIMIT 1',
+      [id]
+    );
+    if (!leave) return res.status(404).json({ message: 'Pengajuan tidak ditemukan' });
+    if (Number(leave.employee_id) === Number(req.employeeId)) {
+      return res.status(403).json({ message: 'Tidak dapat menolak pengajuan sendiri' });
+    }
+    if (leave.status !== 'Pending_HRD') {
+      return res.status(400).json({ message: 'Status pengajuan tidak valid untuk ditolak oleh HRD' });
+    }
+
+    await aloraMobilePool.query(
+      `UPDATE tr_worker_leaves SET
+        status = 'Rejected_HRD',
+        hrd_id = ?,
+        hrd_rejection_reason = ?,
+        hrd_approved_at = NULL,
+        rejection_note = ?,
+        approved_by = ?,
+        approved_by_name = ?,
+        approved_at = NULL,
+        updated_at = NOW()
+       WHERE id = ?`,
+      [req.employeeId, reason, reason, req.employeeId, ctx.fullName, id]
+    );
+    return res.json({ message: 'Pengajuan berhasil ditolak oleh HRD' });
+  } catch (error) {
+    console.error('[leave] rejectHRD', error);
+    return res.status(500).json({ message: 'Gagal melakukan penolakan HRD' });
   }
 };

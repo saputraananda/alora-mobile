@@ -61,17 +61,6 @@ export async function assertCanStartLembur(employeeId, workDate) {
     error.statusCode = 400;
     throw error;
   }
-
-  const [[attendance]] = await aloraMobilePool.query(
-    `SELECT clock_in, clock_out FROM tr_worker_attendance
-     WHERE employee_id = ? AND attendance_date = ? LIMIT 1`,
-    [employeeId, workDate]
-  );
-  if (!attendance?.clock_out) {
-    const error = new Error('Selesaikan absen keluar reguler terlebih dahulu sebelum clock in lembur');
-    error.statusCode = 409;
-    throw error;
-  }
 }
 
 export async function assertCanStartEarnedRo(workDate) {

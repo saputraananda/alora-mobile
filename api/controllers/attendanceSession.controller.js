@@ -364,7 +364,9 @@ async function finishSessionCheckOut(req, res, sessionType) {
   }
 }
 
-export const lemburCheckIn = (req, res) => startSessionCheckIn(req, res, SESSION_TYPES.LEMBUR);
+export const lemburCheckIn = (_req, res) => res.status(410).json({
+  message: 'Sesi clock lembur sudah diganti pengajuan form. Gunakan menu Lembur & RO.',
+});
 export const lemburCheckOut = (req, res) => finishSessionCheckOut(req, res, SESSION_TYPES.LEMBUR);
 export const earnedRoCheckIn = (_req, res) => res.status(410).json({
   message: 'Earned RO session sudah digabung ke absensi WOD. Gunakan absen masuk di Riwayat dan pilih WOD.',

@@ -22,11 +22,14 @@ import {
   durationHoursFromSeconds,
   derivePunchLocationContext,
   formatModeLocationLabel,
-  getAllowedModes,
   OFF_DAY_MESSAGE,
   resolveSuggestedMode,
   validateTodoItems,
 } from '../utils/attendanceModeRules.js';
+import {
+  applyWodLedgerFromAttendance,
+  getApprovedRequestForDate,
+} from './attendanceModeRequest.controller.js';
 
 const HO_LOCATION_CODE = 'HO-ALR';
 const ABSEN_RADIUS_KM = 2;
@@ -161,12 +164,15 @@ async function resolvePunchLocation(latitude, longitude) {
 }
 
 function parseLateFields(body) {
-  const lateCategory = String(body.late_category || '').trim().toLowerCase();
   const lateReason = String(body.late_reason || '').trim().slice(0, 1000);
-  return { lateCategory, lateReason };
+  const rawCategory = String(body.late_category || '').trim().toLowerCase();
+  const lateCategory = rawCategory === 'planned' || rawCategory === 'unexpected'
+    ? rawCategory
+    : '';
+  return { lateReason, lateCategory };
 }
 
-async function validateAndBuildLateFields(today, lateCategory, lateReason) {
+async function validateAndBuildLateFields(today, lateReason, lateCategory) {
   const tolerance = await getLateToleranceDateTime(today);
   const now = new Date();
   const lateMinutes = computeLateMinutesFromClockIn(now, today, tolerance);
@@ -176,12 +182,13 @@ async function validateAndBuildLateFields(today, lateCategory, lateReason) {
   }
 
   if (lateCategory !== 'planned' && lateCategory !== 'unexpected') {
-    const error = new Error('Clock in terlambat — pilih kategori Planned Late atau Unexpected Late');
+    const error = new Error('Clock in terlambat — pilih kategori Terlambat Terencana atau Tidak Terencana');
     error.statusCode = 422;
     throw error;
   }
-  if (!lateReason) {
-    const error = new Error('Alasan keterlambatan wajib diisi');
+
+  if (!lateReason || lateReason.length < 5) {
+    const error = new Error('Clock in terlambat — alasan keterlambatan wajib diisi minimal 5 karakter');
     error.statusCode = 422;
     throw error;
   }
@@ -190,7 +197,7 @@ async function validateAndBuildLateFields(today, lateCategory, lateReason) {
     lateMinutes,
     lateCategory,
     lateReason,
-    lateStatus: lateCategory === 'planned' ? 'Pending_Supervisor' : null,
+    lateStatus: null,
   };
 }
 
@@ -333,8 +340,27 @@ export const getPunchContext = async (req, res) => {
       ? resolveSuggestedMode({ isOffDay: offDay, insideRadius })
       : (offDay ? ATTENDANCE_MODES.WOD : ATTENDANCE_MODES.REGULAR);
 
+    const approvedRequest = await getApprovedRequestForDate(req.employeeId, today);
+    const approvedModeRequest = approvedRequest
+      ? {
+          id: approvedRequest.id,
+          request_type: approvedRequest.request_type,
+          reason: approvedRequest.reason,
+          work_date: toDateOnly(approvedRequest.work_date),
+        }
+      : null;
+
+    let allowedModes;
+    if (approvedModeRequest) {
+      allowedModes = [approvedModeRequest.request_type];
+    } else if (offDay) {
+      allowedModes = [];
+    } else {
+      allowedModes = [ATTENDANCE_MODES.REGULAR];
+    }
+
     const tolerance = await getLateToleranceDateTime(today);
-    const lateMinutes = offDay
+    const lateMinutes = offDay || approvedModeRequest
       ? 0
       : computeLateMinutesFromClockIn(new Date(), today, tolerance);
 
@@ -344,9 +370,14 @@ export const getPunchContext = async (req, res) => {
       holiday_name: holiday?.name || null,
       inside_radius: insideRadius,
       punch_location_context: insideRadius != null ? derivePunchLocationContext(insideRadius) : null,
-      suggested_mode: suggestedMode,
-      allowed_modes: getAllowedModes(offDay),
-      off_day_message: offDay ? OFF_DAY_MESSAGE : null,
+      suggested_mode: approvedModeRequest
+        ? approvedModeRequest.request_type
+        : (offDay ? ATTENDANCE_MODES.WOD : suggestedMode === ATTENDANCE_MODES.WFA ? ATTENDANCE_MODES.REGULAR : suggestedMode),
+      allowed_modes: allowedModes,
+      approved_mode_request: approvedModeRequest,
+      off_day_message: offDay && !approvedModeRequest
+        ? 'Hari ini libur. Ajukan WOD dulu di tab WOD; setelah disetujui baru bisa absen.'
+        : (offDay ? OFF_DAY_MESSAGE : null),
       is_late: lateMinutes > 0,
       late_tolerance_iso: tolerance.toISOString(),
     });
@@ -374,6 +405,7 @@ export const getDayContext = async (req, res) => {
   const today = todayDateString();
   try {
     const ctx = await getEmployeeDayContext(req.employeeId, today);
+    const approvedRequest = await getApprovedRequestForDate(req.employeeId, today);
     const [[activeSession]] = await aloraMobilePool.query(
       `SELECT id, session_type, status, clock_in, work_date
        FROM tr_attendance_sessions
@@ -388,6 +420,14 @@ export const getDayContext = async (req, res) => {
       is_off_day: ctx.is_off_day,
       final_status: ctx.final_status,
       active_session: activeSession || null,
+      approved_mode_request: approvedRequest
+        ? {
+            id: approvedRequest.id,
+            request_type: approvedRequest.request_type,
+            reason: approvedRequest.reason,
+            work_date: toDateOnly(approvedRequest.work_date),
+          }
+        : null,
       late_tolerance_iso: tolerance.toISOString(),
     });
   } catch (error) {
@@ -437,17 +477,49 @@ export const checkInAttendance = async (req, res) => {
       return res.status(422).json({ message: 'Foto masuk wajib dilampirkan' });
     }
 
-    const attendanceMode = String(req.body.attendance_mode || '').trim();
-    const modeReason = String(req.body.mode_reason || '').trim();
+    const attendanceModeRaw = String(req.body.attendance_mode || '').trim();
+    const modeReasonRaw = String(req.body.mode_reason || '').trim();
     const offDay = await isOffDay(today);
+    const approvedRequest = await getApprovedRequestForDate(employeeId, today);
+
+    let attendanceMode = attendanceModeRaw;
+    let modeReason = modeReasonRaw;
+    let modeRequestId = null;
+
+    if (approvedRequest) {
+      attendanceMode = approvedRequest.request_type;
+      modeReason = String(approvedRequest.reason || '').trim();
+      modeRequestId = approvedRequest.id;
+      if (
+        attendanceModeRaw
+        && attendanceModeRaw !== approvedRequest.request_type
+      ) {
+        return res.status(422).json({
+          message: `Mode absensi terkunci ke ${String(approvedRequest.request_type).toUpperCase()} sesuai pengajuan yang disetujui`,
+        });
+      }
+    } else if (offDay) {
+      return res.status(422).json({
+        message: 'Hari ini libur. Ajukan WOD di tab WOD dan tunggu persetujuan sebelum absen.',
+      });
+    } else {
+      if (!attendanceMode) attendanceMode = ATTENDANCE_MODES.REGULAR;
+      if (attendanceMode !== ATTENDANCE_MODES.REGULAR) {
+        return res.status(422).json({
+          message: 'WFA/WOD hanya tersedia setelah pengajuan disetujui. Ajukan dulu di tab WFA atau WOD.',
+        });
+      }
+    }
 
     assertModeAllowedForDay({ isOffDay: offDay, attendanceMode });
-    assertModeReasonRequired(attendanceMode, modeReason);
+    if (attendanceMode === ATTENDANCE_MODES.WFA || attendanceMode === ATTENDANCE_MODES.WOD) {
+      assertModeReasonRequired(attendanceMode, modeReason);
+    }
 
-    const { lateCategory, lateReason } = parseLateFields(req.body);
+    const { lateReason, lateCategory } = parseLateFields(req.body);
     let lateFields = { lateMinutes: 0, lateCategory: null, lateReason: null, lateStatus: null };
     if (attendanceMode === ATTENDANCE_MODES.REGULAR) {
-      lateFields = await validateAndBuildLateFields(today, lateCategory, lateReason);
+      lateFields = await validateAndBuildLateFields(today, lateReason, lateCategory);
     }
 
     const { office, lat, lng, locationName, insideRadius } = await resolvePunchLocation(
@@ -464,67 +536,73 @@ export const checkInAttendance = async (req, res) => {
 
     const saved = await savePhoto(employeeId, today, 'foto_masuk', req.file);
 
-    const insertCols = `employee_id, attendance_date, attendance_mode, clock_in, foto_masuk_path,
+    const insertCols = `employee_id, attendance_date, attendance_mode, mode_request_id, clock_in, foto_masuk_path,
             clock_in_latitude, clock_in_longitude, clock_in_location_name, location_absen_id,
             clock_in_inside_radius, punch_location_context_in, mode_reason,
             late_category, late_reason, late_minutes, late_status, approval_status`;
-    const insertVals = `?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL`;
+    const insertVals = `?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL`;
     const params = [
-      employeeId, today, attendanceMode, saved.path, lat, lng, locationName, locationAbsenId,
+      employeeId, today, attendanceMode, modeRequestId, saved.path, lat, lng, locationName, locationAbsenId,
       insideRadius ? 1 : 0, punchContextIn,
       (attendanceMode === ATTENDANCE_MODES.WFA || attendanceMode === ATTENDANCE_MODES.WOD) ? modeReason : null,
       lateFields.lateCategory, lateFields.lateReason, lateFields.lateMinutes || null, lateFields.lateStatus,
     ];
 
+    let attendanceId;
     if (!existing) {
       const [result] = await aloraMobilePool.query(
         `INSERT INTO tr_worker_attendance (${insertCols}) VALUES (${insertVals})`,
         params
       );
-      const [[inserted]] = await aloraMobilePool.query(
-        'SELECT * FROM tr_worker_attendance WHERE id = ?',
-        [result.insertId]
+      attendanceId = result.insertId;
+    } else {
+      await aloraMobilePool.query(
+        `UPDATE tr_worker_attendance
+         SET attendance_mode = ?,
+             mode_request_id = ?,
+             clock_in = NOW(),
+             foto_masuk_path = ?,
+             clock_in_latitude = ?,
+             clock_in_longitude = ?,
+             clock_in_location_name = ?,
+             location_absen_id = ?,
+             clock_in_inside_radius = ?,
+             punch_location_context_in = ?,
+             mode_reason = ?,
+             late_category = ?,
+             late_reason = ?,
+             late_minutes = ?,
+             late_status = ?,
+             approval_status = NULL,
+             updated_at = NOW()
+         WHERE id = ?`,
+        [
+          attendanceMode, modeRequestId, saved.path, lat, lng, locationName, locationAbsenId, insideRadius ? 1 : 0,
+          punchContextIn,
+          (attendanceMode === ATTENDANCE_MODES.WFA || attendanceMode === ATTENDANCE_MODES.WOD) ? modeReason : null,
+          lateFields.lateCategory, lateFields.lateReason, lateFields.lateMinutes || null, lateFields.lateStatus,
+          existing.id,
+        ]
       );
-      return res.status(201).json({
-        message: 'Absen masuk berhasil',
-        attendance: serializeAttendance(inserted),
-      });
+      attendanceId = existing.id;
     }
 
-    await aloraMobilePool.query(
-      `UPDATE tr_worker_attendance
-       SET attendance_mode = ?,
-           clock_in = NOW(),
-           foto_masuk_path = ?,
-           clock_in_latitude = ?,
-           clock_in_longitude = ?,
-           clock_in_location_name = ?,
-           location_absen_id = ?,
-           clock_in_inside_radius = ?,
-           punch_location_context_in = ?,
-           mode_reason = ?,
-           late_category = ?,
-           late_reason = ?,
-           late_minutes = ?,
-           late_status = ?,
-           approval_status = NULL,
-           updated_at = NOW()
-       WHERE id = ?`,
-      [
-        attendanceMode, saved.path, lat, lng, locationName, locationAbsenId, insideRadius ? 1 : 0,
-        punchContextIn,
-        (attendanceMode === ATTENDANCE_MODES.WFA || attendanceMode === ATTENDANCE_MODES.WOD) ? modeReason : null,
-        lateFields.lateCategory, lateFields.lateReason, lateFields.lateMinutes || null, lateFields.lateStatus,
-        existing.id,
-      ]
-    );
-    const [[updated]] = await aloraMobilePool.query(
+    if (modeRequestId) {
+      await aloraMobilePool.query(
+        `UPDATE tr_attendance_mode_requests
+         SET attendance_id = ?, updated_at = NOW()
+         WHERE id = ? AND employee_id = ?`,
+        [attendanceId, modeRequestId, employeeId]
+      );
+    }
+
+    const [[inserted]] = await aloraMobilePool.query(
       'SELECT * FROM tr_worker_attendance WHERE id = ?',
-      [existing.id]
+      [attendanceId]
     );
     return res.status(201).json({
       message: 'Absen masuk berhasil',
-      attendance: serializeAttendance(updated),
+      attendance: serializeAttendance(inserted),
     });
   } catch (error) {
     const status = error.statusCode || 500;
@@ -580,7 +658,11 @@ export const checkOutAttendance = async (req, res) => {
       todoJson = JSON.stringify(todoValidated.items);
     }
 
-    const needsApproval = mode === ATTENDANCE_MODES.WFA || mode === ATTENDANCE_MODES.WOD;
+    // Gated WFA/WOD (via approved mode request): no second Pending after clock out
+    const isGatedMode = Boolean(existing.mode_request_id)
+      && (mode === ATTENDANCE_MODES.WFA || mode === ATTENDANCE_MODES.WOD);
+    const needsApproval = !isGatedMode
+      && (mode === ATTENDANCE_MODES.WFA || mode === ATTENDANCE_MODES.WOD);
     const approvalStatus = needsApproval ? 'Pending_Supervisor' : null;
 
     await aloraMobilePool.query(
@@ -612,6 +694,15 @@ export const checkOutAttendance = async (req, res) => {
       'SELECT * FROM tr_worker_attendance WHERE id = ?',
       [existing.id]
     );
+
+    if (isGatedMode && mode === ATTENDANCE_MODES.WOD) {
+      try {
+        await applyWodLedgerFromAttendance(updated);
+      } catch (ledgerErr) {
+        console.error('[attendance] applyWodLedgerFromAttendance', ledgerErr);
+      }
+    }
+
     return res.status(200).json({
       message: 'Absen keluar berhasil',
       attendance: serializeAttendance(updated),

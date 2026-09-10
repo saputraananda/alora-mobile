@@ -5,7 +5,6 @@ import { ArrowLeft, Clock, Plus } from 'lucide-react';
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 import {
   computeDurationHours,
-  jakartaWeekday,
 } from '../utils/lemburRoClient.js';
 
 const api = axios.create({ baseURL: '/api' });
@@ -16,15 +15,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-const REQUEST_TYPES = [
-  { key: 'lembur', label: 'Lembur', desc: 'Kerja di luar jam reguler', color: '#7C3AED', bg: '#F5F3FF' },
-  { key: 'replace_off', label: 'Replace Off (RO)', desc: 'Kerja di hari libur', color: '#2563EB', bg: '#EFF6FF' },
-];
-
-const COMPENSATION_TYPES = [
-  { key: 'ganti_hari', label: 'Ganti hari libur', desc: 'Ambil cuti di hari lain' },
-  { key: 'kompensasi_tunai', label: 'Kompensasi tunai', desc: 'Tidak ada hari pengganti' },
-];
+const LEMBUR_META = { label: 'Lembur', color: '#7C3AED', bg: '#F5F3FF' };
 
 const STATUS_META = {
   Pending_Supervisor: { label: 'Menunggu Approval', color: '#F59E0B', bg: '#FFFBEB' },
@@ -35,11 +26,6 @@ const STATUS_META = {
 };
 
 const EDITABLE_STATUSES = new Set(['Pending_Supervisor', 'Rejected_Supervisor', 'Rejected_HRD']);
-const TYPE_FILTER_OPTIONS = [
-  { key: '', label: 'Semua' },
-  { key: 'lembur', label: 'Lembur' },
-  { key: 'replace_off', label: 'RO' },
-];
 
 const MONTHS_ID = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -66,11 +52,6 @@ const formatDateTimeID = (str) => {
   });
 };
 
-const COMP_LABEL = {
-  ganti_hari: 'Ganti hari libur',
-  kompensasi_tunai: 'Kompensasi tunai',
-};
-
 function StatusBadge({ status }) {
   const m = STATUS_META[status] || { label: status || 'Status', color: '#64748B', bg: '#F8FAFC' };
   return (
@@ -84,13 +65,11 @@ function StatusBadge({ status }) {
 }
 
 function LemburRoCard({ item, onCancel, onEdit }) {
-  const rt = REQUEST_TYPES.find((t) => t.key === item.request_type) || REQUEST_TYPES[0];
-
   return (
     <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,.06)]">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100" style={{ background: rt.bg }}>
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100" style={{ background: LEMBUR_META.bg }}>
         <div className="flex-1 min-w-0">
-          <div className="text-[13px] font-bold" style={{ color: rt.color }}>{rt.label}</div>
+          <div className="text-[13px] font-bold" style={{ color: LEMBUR_META.color }}>{LEMBUR_META.label}</div>
           <div className="text-[11px] text-slate-500 mt-0.5">
             {item.start_time} – {item.end_time} · {item.duration_hours} jam
           </div>
@@ -99,13 +78,19 @@ function LemburRoCard({ item, onCancel, onEdit }) {
       </div>
       <div className="px-4 py-3 space-y-1.5">
         <div className="text-[12.5px] text-slate-600">{formatDateID(item.work_date)}</div>
-        {item.request_type === 'replace_off' && item.compensation_type && (
-          <div className="text-[11.5px] text-slate-500">
-            {COMP_LABEL[item.compensation_type] || item.compensation_type}
-            {item.replacement_date ? ` · ${formatDateID(item.replacement_date)}` : ''}
-          </div>
-        )}
         <div className="text-[12.5px] text-slate-600 line-clamp-2">{item.description}</div>
+        {Array.isArray(item.todo_items) && item.todo_items.length > 0 && (
+          <ul className="mt-1 space-y-0.5">
+            {item.todo_items.slice(0, 3).map((t, idx) => (
+              <li key={`${idx}-${t}`} className="text-[11.5px] text-slate-500">
+                · {t}
+              </li>
+            ))}
+            {item.todo_items.length > 3 && (
+              <li className="text-[11px] text-slate-400">+{item.todo_items.length - 3} item lain</li>
+            )}
+          </ul>
+        )}
         {(item.supervisor_rejection_reason || item.hrd_rejection_reason || item.rejection_note) && (
           <div className="mt-1 text-[11.5px] text-red-600 bg-red-50 rounded-xl px-3 py-2">
             {item.supervisor_rejection_reason || item.hrd_rejection_reason || item.rejection_note}
@@ -138,28 +123,26 @@ function LemburRoCard({ item, onCancel, onEdit }) {
 }
 
 export default function LemburRo() {
-  useDocumentTitle('Lembur & RO');
+  useDocumentTitle('Lembur');
   const navigate = useNavigate();
 
   const [items, setItems] = useState([]);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState(null);
-  const [typeFilter, setTypeFilter] = useState('');
 
   const _now = new Date();
   const [filterMonth, setFilterMonth] = useState(_now.getMonth() + 1);
   const [filterYear, setFilterYear] = useState(_now.getFullYear());
-  const [stats, setStats] = useState({ lembur: 0, replace_off: 0, pending: 0 });
+  const [stats, setStats] = useState({ lembur: 0, pending: 0 });
 
   const [formOpen, setFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
-  const [requestType, setRequestType] = useState('lembur');
   const [workDate, setWorkDate] = useState(todayStr());
   const [startTime, setStartTime] = useState('18:00');
   const [endTime, setEndTime] = useState('21:00');
   const [description, setDescription] = useState('');
-  const [compensationType, setCompensationType] = useState('ganti_hari');
-  const [replacementDate, setReplacementDate] = useState(todayStr());
+  const [todoItems, setTodoItems] = useState([]);
+  const [todoDraft, setTodoDraft] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
 
@@ -181,7 +164,6 @@ export default function LemburRo() {
         month: String(filterMonth),
         year: String(filterYear),
       });
-      if (typeFilter) qs.set('request_type', typeFilter);
       const { data } = await api.get(`/lembur-ro/list?${qs.toString()}`);
       setItems(data.items || []);
     } catch {
@@ -189,16 +171,16 @@ export default function LemburRo() {
     } finally {
       setLoadingList(false);
     }
-  }, [filterMonth, filterYear, typeFilter]);
+  }, [filterMonth, filterYear]);
 
   const fetchStats = useCallback(async () => {
     try {
       const { data } = await api.get(
         `/lembur-ro/stats?month=${filterMonth}&year=${filterYear}`
       );
-      setStats(data.stats || { lembur: 0, replace_off: 0, pending: 0 });
+      setStats(data.stats || { lembur: 0, pending: 0 });
     } catch {
-      setStats({ lembur: 0, replace_off: 0, pending: 0 });
+      setStats({ lembur: 0, pending: 0 });
     }
   }, [filterMonth, filterYear]);
 
@@ -208,13 +190,12 @@ export default function LemburRo() {
   }, [fetchList, fetchStats]);
 
   const resetForm = () => {
-    setRequestType('lembur');
     setWorkDate(todayStr());
     setStartTime('18:00');
     setEndTime('21:00');
     setDescription('');
-    setCompensationType('ganti_hari');
-    setReplacementDate(todayStr());
+    setTodoItems([]);
+    setTodoDraft('');
     setSubmitError(null);
   };
 
@@ -226,15 +207,29 @@ export default function LemburRo() {
 
   const openEdit = (item) => {
     setEditTarget(item);
-    setRequestType(item.request_type);
     setWorkDate(item.work_date?.slice(0, 10) || todayStr());
     setStartTime(item.start_time || '18:00');
     setEndTime(item.end_time || '21:00');
     setDescription(item.description || '');
-    setCompensationType(item.compensation_type || 'ganti_hari');
-    setReplacementDate(item.replacement_date?.slice(0, 10) || todayStr());
+    setTodoItems(Array.isArray(item.todo_items) ? item.todo_items : []);
+    setTodoDraft('');
     setSubmitError(null);
     setFormOpen(true);
+  };
+
+  const addTodoItem = () => {
+    const text = todoDraft.trim();
+    if (!text) return;
+    if (todoItems.length >= 20) {
+      setSubmitError('Maksimal 20 poin pekerjaan.');
+      return;
+    }
+    setTodoItems((prev) => [...prev, text]);
+    setTodoDraft('');
+  };
+
+  const removeTodoItem = (index) => {
+    setTodoItems((prev) => prev.filter((_, i) => i !== index));
   };
 
   const clientValidate = () => {
@@ -244,11 +239,8 @@ export default function LemburRo() {
     if (!durationPreview) {
       return 'Jam selesai harus setelah jam mulai.';
     }
-    if (requestType === 'replace_off' && jakartaWeekday(workDate) === 0) {
-      return 'Hari Minggu libur, tidak dapat diajukan RO.';
-    }
-    if (requestType === 'replace_off' && compensationType === 'ganti_hari' && jakartaWeekday(replacementDate) === 0) {
-      return 'Hari pengganti tidak boleh hari Minggu.';
+    if (todoItems.filter((t) => String(t).trim()).length < 1) {
+      return 'Minimal 1 poin pekerjaan (to-do) wajib diisi untuk lembur.';
     }
     return null;
   };
@@ -265,18 +257,13 @@ export default function LemburRo() {
     setSubmitting(true);
     try {
       const body = {
-        request_type: requestType,
+        request_type: 'lembur',
         work_date: workDate,
         start_time: startTime,
         end_time: endTime,
         description: description.trim(),
+        todo_items: todoItems.map((t) => String(t).trim()).filter(Boolean),
       };
-      if (requestType === 'replace_off') {
-        body.compensation_type = compensationType;
-        if (compensationType === 'ganti_hari') {
-          body.replacement_date = replacementDate;
-        }
-      }
 
       if (editTarget) {
         await api.put(`/lembur-ro/${editTarget.id}`, body);
@@ -328,7 +315,7 @@ export default function LemburRo() {
               Pegawai Alora
             </div>
             <div className="text-[15px] font-extrabold text-white tracking-[-0.01em] truncate">
-              Lembur & RO
+              Lembur
             </div>
           </div>
           <button
@@ -381,10 +368,9 @@ export default function LemburRo() {
           <div>
             <p className="text-[14px] font-extrabold text-slate-900">Ringkasan</p>
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {[
               { label: 'Lembur', count: stats.lembur, color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE' },
-              { label: 'RO', count: stats.replace_off, color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE' },
               { label: 'Menunggu', count: stats.pending, color: '#F59E0B', bg: '#FFFBEB', border: '#FDE68A' },
             ].map((s) => (
               <div
@@ -395,25 +381,6 @@ export default function LemburRo() {
                 <div className="text-[24px] font-extrabold leading-none" style={{ color: s.color }}>{s.count}</div>
                 <div className="text-[10px] font-semibold text-slate-500 mt-1">{s.label}</div>
               </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-[18px] bg-white p-4 shadow-[0_1px_4px_rgba(0,0,0,.04)] border border-slate-200">
-          <div className="flex gap-2 flex-wrap">
-            {TYPE_FILTER_OPTIONS.map((opt) => (
-              <button
-                key={opt.key || 'all'}
-                type="button"
-                onClick={() => setTypeFilter(opt.key)}
-                className={`px-3 py-1.5 rounded-full text-[12px] font-semibold border transition ${
-                  typeFilter === opt.key
-                    ? 'bg-violet-600 text-white border-violet-600'
-                    : 'bg-white text-slate-600 border-slate-200'
-                }`}
-              >
-                {opt.label}
-              </button>
             ))}
           </div>
         </section>
@@ -462,7 +429,7 @@ export default function LemburRo() {
             </div>
             <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
               <h2 className="text-[15px] font-extrabold text-slate-900">
-                {editTarget ? 'Edit Pengajuan' : 'Ajukan Lembur / RO'}
+                {editTarget ? 'Edit Pengajuan' : 'Ajukan Lembur'}
               </h2>
               <button type="button" onClick={() => setFormOpen(false)} className="text-slate-400 text-sm font-semibold">
                 Tutup
@@ -470,26 +437,6 @@ export default function LemburRo() {
             </div>
 
             <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-              <div className="space-y-2">
-                <label className="text-[12px] font-bold text-slate-700">Jenis Pengajuan</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {REQUEST_TYPES.map((t) => (
-                    <button
-                      key={t.key}
-                      type="button"
-                      onClick={() => setRequestType(t.key)}
-                      className={`rounded-xl border p-3 text-left transition ${
-                        requestType === t.key ? 'border-violet-400 ring-2 ring-violet-100' : 'border-slate-200'
-                      }`}
-                      style={{ background: requestType === t.key ? t.bg : '#fff' }}
-                    >
-                      <div className="text-[13px] font-bold" style={{ color: t.color }}>{t.label}</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">{t.desc}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <div>
                 <label className="text-[12px] font-bold text-slate-700">Tanggal Kerja</label>
                 <input
@@ -528,51 +475,6 @@ export default function LemburRo() {
                 Durasi: <b>{durationPreview != null ? `${durationPreview} jam` : '—'}</b>
               </div>
 
-              {requestType === 'replace_off' && (
-                <>
-                  <div className="space-y-2">
-                    <label className="text-[12px] font-bold text-slate-700">Tipe Kompensasi</label>
-                    {COMPENSATION_TYPES.map((c) => (
-                      <label
-                        key={c.key}
-                        className={`flex items-start gap-2 rounded-xl border p-3 cursor-pointer ${
-                          compensationType === c.key ? 'border-blue-400 bg-blue-50' : 'border-slate-200'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="compensation"
-                          checked={compensationType === c.key}
-                          onChange={() => setCompensationType(c.key)}
-                          className="mt-0.5"
-                        />
-                        <div>
-                          <div className="text-[13px] font-semibold text-slate-800">{c.label}</div>
-                          <div className="text-[11px] text-slate-500">{c.desc}</div>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                  {compensationType === 'ganti_hari' && (
-                    <div>
-                      <label className="text-[12px] font-bold text-slate-700">Tanggal Hari Pengganti</label>
-                      <input
-                        type="date"
-                        value={replacementDate}
-                        onChange={(e) => setReplacementDate(e.target.value)}
-                        className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-[13px]"
-                        required
-                      />
-                    </div>
-                  )}
-                  {compensationType === 'kompensasi_tunai' && (
-                    <p className="text-[11px] text-slate-500">
-                      Tidak ada hari pengganti — kompensasi mengikuti kebijakan perusahaan.
-                    </p>
-                  )}
-                </>
-              )}
-
               <div>
                 <label className="text-[12px] font-bold text-slate-700">Keterangan</label>
                 <textarea
@@ -580,10 +482,57 @@ export default function LemburRo() {
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
                   className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-[13px] resize-none"
-                  placeholder="Jelaskan alasan lembur / RO..."
+                  placeholder="Jelaskan alasan lembur..."
                   required
                 />
               </div>
+
+              <div className="space-y-2">
+                  <label className="text-[12px] font-bold text-slate-700">To-do Pekerjaan</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={todoDraft}
+                      onChange={(e) => setTodoDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addTodoItem();
+                        }
+                      }}
+                      className="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-[13px]"
+                      placeholder="Tambah poin pekerjaan..."
+                    />
+                    <button
+                      type="button"
+                      onClick={addTodoItem}
+                      className="px-3 rounded-xl bg-violet-50 border border-violet-200 text-violet-700 text-[12px] font-bold"
+                    >
+                      Tambah
+                    </button>
+                  </div>
+                  {todoItems.length === 0 ? (
+                    <p className="text-[11px] text-slate-500">Minimal 1 poin pekerjaan untuk pengajuan lembur.</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {todoItems.map((item, idx) => (
+                        <li
+                          key={`${idx}-${item}`}
+                          className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+                        >
+                          <span className="flex-1 text-[12.5px] text-slate-700">{item}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeTodoItem(idx)}
+                            className="text-[11px] font-semibold text-red-500"
+                          >
+                            Hapus
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
 
               {submitError && (
                 <div className="rounded-xl bg-red-50 border border-red-100 px-3 py-2 text-[12px] text-red-600">

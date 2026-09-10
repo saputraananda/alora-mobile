@@ -15,7 +15,7 @@ export function getAllowedModes(isOffDay) {
 }
 
 export const OFF_DAY_BLOCK_MESSAGE =
-  'Hari ini libur. Absensi Harian/WFA tidak tersedia. Jika Anda bekerja, pilih Ini WOD.';
+  'Hari ini libur. Ajukan WOD di tab WOD dan tunggu persetujuan sebelum absen.';
 
 export function formatModeLocationLabel({ attendanceMode, punchLocationContextIn }) {
   const mode = attendanceMode || 'regular';

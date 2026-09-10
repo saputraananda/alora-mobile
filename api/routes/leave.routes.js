@@ -13,6 +13,11 @@ import {
   updateLeave,
   cancelLeave,
   serveDoctorNote,
+  listPendingApprovals,
+  approveSupervisor,
+  rejectSupervisor,
+  approveHRD,
+  rejectHRD,
 } from '../controllers/leave.controller.js';
 
 const router = Router();
@@ -41,6 +46,11 @@ router.get('/annual-balance', getAnnualLeaveBalanceHandler);
 router.get('/funding-balances', getFundingBalances);
 router.get('/work-hours', getWorkHours);
 router.get('/list', getLeaveList);
+router.get('/pending-approvals', listPendingApprovals);
+router.post('/:id/supervisor-approve', approveSupervisor);
+router.post('/:id/supervisor-reject', rejectSupervisor);
+router.post('/:id/hrd-approve', approveHRD);
+router.post('/:id/hrd-reject', rejectHRD);
 router.post('/', handleUpload, submitLeave);
 router.put('/:id', handleUpload, updateLeave);
 router.delete('/:id', cancelLeave);

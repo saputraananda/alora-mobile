@@ -1,15 +1,22 @@
 import { useState } from 'react';
 
 export default function LateCheckInModal({ open, onClose, onSubmit, loading, error }) {
-  const [category, setCategory] = useState('unexpected');
+  const [lateCategory, setLateCategory] = useState('');
   const [reason, setReason] = useState('');
 
   if (!open) return null;
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSubmit({ late_category: category, late_reason: reason.trim() });
+    onSubmit({
+      late_category: lateCategory,
+      late_reason: reason.trim(),
+    });
   };
+
+  const submitDisabled = loading
+    || (lateCategory !== 'planned' && lateCategory !== 'unexpected')
+    || reason.trim().length < 5;
 
   return (
     <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/50 p-4 sm:items-center">
@@ -19,29 +26,32 @@ export default function LateCheckInModal({ open, onClose, onSubmit, loading, err
           Pilih kategori dan isi alasan sebelum absen masuk.
         </p>
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setCategory('unexpected')}
-              className={`flex-1 rounded-xl border px-3 py-2.5 text-xs font-bold ${
-                category === 'unexpected'
-                  ? 'border-amber-400 bg-amber-50 text-amber-800'
-                  : 'border-slate-200 text-slate-600'
-              }`}
-            >
-              Tidak Terduga
-            </button>
-            <button
-              type="button"
-              onClick={() => setCategory('planned')}
-              className={`flex-1 rounded-xl border px-3 py-2.5 text-xs font-bold ${
-                category === 'planned'
-                  ? 'border-blue-400 bg-blue-50 text-blue-800'
-                  : 'border-slate-200 text-slate-600'
-              }`}
-            >
-              Rencana
-            </button>
+          <div>
+            <label className="text-xs font-bold text-slate-600">Kategori keterlambatan</label>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setLateCategory('planned')}
+                className={`rounded-xl border px-3 py-2.5 text-left text-xs font-bold transition ${
+                  lateCategory === 'planned'
+                    ? 'border-[#1e3a5f] bg-[#1e3a5f] text-white'
+                    : 'border-slate-200 bg-white text-slate-700'
+                }`}
+              >
+                Terlambat Terencana
+              </button>
+              <button
+                type="button"
+                onClick={() => setLateCategory('unexpected')}
+                className={`rounded-xl border px-3 py-2.5 text-left text-xs font-bold transition ${
+                  lateCategory === 'unexpected'
+                    ? 'border-[#1e3a5f] bg-[#1e3a5f] text-white'
+                    : 'border-slate-200 bg-white text-slate-700'
+                }`}
+              >
+                Tidak Terencana
+              </button>
+            </div>
           </div>
           <div>
             <label className="text-xs font-bold text-slate-600">Alasan keterlambatan</label>
@@ -53,6 +63,9 @@ export default function LateCheckInModal({ open, onClose, onSubmit, loading, err
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
               placeholder="Contoh: macet di tol, ada keperluan keluarga"
             />
+            {reason.trim().length > 0 && reason.trim().length < 5 && (
+              <p className="mt-1 text-xs text-amber-700">Minimal 5 karakter</p>
+            )}
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <div className="flex gap-2">
@@ -65,7 +78,7 @@ export default function LateCheckInModal({ open, onClose, onSubmit, loading, err
             </button>
             <button
               type="submit"
-              disabled={loading || !reason.trim()}
+              disabled={submitDisabled}
               className="flex-1 rounded-xl bg-[#1e3a5f] py-2.5 text-sm font-bold text-white disabled:opacity-50"
             >
               {loading ? 'Mengirim…' : 'Lanjut Absen Masuk'}

@@ -11,7 +11,8 @@ import {
   Clock,
   CheckCircle2,
   Bell,
-  Megaphone
+  Megaphone,
+  CheckSquare
 } from 'lucide-react';
 import { FaRunning } from 'react-icons/fa';
 import aloraMobileLogo from '../assets/images/aloramobile-white.webp';
@@ -57,6 +58,8 @@ export default function Home() {
   const [leaderRole, setLeaderRole] = useState(null);
   const [broadcasts, setBroadcasts] = useState([]);
   const [broadcastsLoading, setBroadcastsLoading] = useState(true);
+  const [approvalAccess, setApprovalAccess] = useState(false);
+  const [approvalTotal, setApprovalTotal] = useState(0);
 
   // Load authenticated user data
   useEffect(() => {
@@ -98,6 +101,22 @@ export default function Home() {
       .then((r) => setLeaderRole(r.data?.data?.role || null))
       .catch(() => setLeaderRole(null));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    homeApi.get('/approvals/summary')
+      .then((r) => {
+        if (cancelled) return;
+        setApprovalAccess(Boolean(r.data?.can_access));
+        setApprovalTotal(Number(r.data?.total) || 0);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setApprovalAccess(false);
+        setApprovalTotal(0);
+      });
+    return () => { cancelled = true; };
+  }, [location.pathname]);
 
   const loadBroadcasts = useCallback(async ({ retries = 2, delayMs = 1000, silent = false } = {}) => {
     if (!silent) setBroadcastsLoading(true);
@@ -194,11 +213,13 @@ export default function Home() {
 
   const handleMenuClick = (item) => {
     if (item.id === 'absensi') {
-      navigate('/riwayat');
+      navigate('/absensi');
+    } else if (item.id === 'approval') {
+      navigate('/approval');
     } else if (item.id === 'perizinan') {
       navigate('/perizinan');
     } else if (item.id === 'lemburro') {
-      navigate('/riwayat?panel=sessions');
+      navigate('/lembur-ro');
     } else if (item.id === 'alorabugar') {
       navigate('/bugar');
     } else {
@@ -220,8 +241,19 @@ export default function Home() {
       subtitle: 'Clock In & Out GPS',
       icon: <CalendarCheck className="w-5 h-5 text-emerald-600" />,
       badgeColor: 'bg-emerald-50 border-emerald-200/80',
-      modalDesc: 'Fitur Presensi GPS & Riwayat Kehadiran Pegawai Alora Mobile.'
+      modalDesc: 'Clock in dan clock out dengan foto kamera serta GPS.'
     },
+    ...(approvalAccess
+      ? [{
+          id: 'approval',
+          title: 'Approval',
+          subtitle: 'Antrian persetujuan',
+          icon: <CheckSquare className="w-5 h-5 text-indigo-600" />,
+          badgeColor: 'bg-indigo-50 border-indigo-200/80',
+          badgeCount: approvalTotal,
+          modalDesc: 'Persetujuan WFA, WOD, Lembur, dan Perizinan.',
+        }]
+      : []),
     {
       id: 'alorabugar',
       title: 'Alora Bugar',
@@ -240,11 +272,11 @@ export default function Home() {
     },
     {
       id: 'lemburro',
-      title: 'Lembur & RO',
-      subtitle: 'Lembur & RO di Riwayat',
+      title: 'Lembur',
+      subtitle: 'Pengajuan lembur',
       icon: <Clock className="w-5 h-5 text-violet-600" />,
       badgeColor: 'bg-violet-50 border-violet-200/80',
-      modalDesc: 'Pengajuan lembur dan replace off (RO) dengan approval supervisor.'
+      modalDesc: 'Pengajuan lembur dengan approval supervisor.'
     },
     {
       id: 'slipgaji',
@@ -353,8 +385,13 @@ export default function Home() {
                 className="flex flex-col items-center cursor-pointer group"
               >
                 {/* Icon Box */}
-                <div className={`w-12 h-12 rounded-[20px] ${item.badgeColor} border flex items-center justify-center shadow-sm group-hover:scale-105 active:scale-95 transition flex-shrink-0`}>
+                <div className={`relative w-12 h-12 rounded-[20px] ${item.badgeColor} border flex items-center justify-center shadow-sm group-hover:scale-105 active:scale-95 transition flex-shrink-0`}>
                   {item.icon}
+                  {Number(item.badgeCount) > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none border-2 border-white">
+                      {Number(item.badgeCount) > 99 ? '99+' : item.badgeCount}
+                    </span>
+                  )}
                 </div>
 
                 {/* Title */}
@@ -399,7 +436,7 @@ export default function Home() {
           <div className="flex flex-col gap-3">
             {/* INFO CARD 1: ABSENSI */}
             <div 
-              onClick={() => navigate('/riwayat')}
+              onClick={() => navigate('/absensi')}
               className="bg-white rounded-[22px] p-4 border border-slate-200/80 shadow-sm flex items-start gap-3.5 cursor-pointer hover:border-emerald-300 transition group"
             >
               <div className="w-10 h-10 rounded-[14px] bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5">
