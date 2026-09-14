@@ -158,7 +158,10 @@ async function buildLeaveTimeAndFundingFields(employeeId, {
 
   if (leaveType === 'izin') {
     const sources = parseFundingSources(fundingSourcesRaw);
-    const funding = await resolveIzinFundingForSubmit(employeeId, leave_duration_hours, sources);
+    const funding = await resolveIzinFundingForSubmit(employeeId, leave_duration_hours, sources, {
+      durationType: resolvedDurationType,
+      startDate,
+    });
     funding_ro_hours = funding.funding_ro_hours;
     funding_overtime_hours = funding.funding_overtime_hours;
     funding_unpaid_hours = funding.funding_unpaid_hours;

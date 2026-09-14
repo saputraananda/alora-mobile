@@ -5,10 +5,13 @@ import { ArrowLeft, FileText, Plus } from 'lucide-react';
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 import { countLeaveDaysClient } from '../utils/countLeaveDays.js';
 import {
+  canUseRoForLeave,
   computeIzinFundingClient,
   computeLeaveDurationHoursClient,
   formatTimeHHmm,
+  getRoFullDayMinHoursClient,
   isPartialDurationType,
+  paidSourceFromFundingItem,
   todayStrJakarta,
 } from '../utils/leaveTimeClient.js';
 
@@ -61,10 +64,10 @@ const DURATION_TYPES = [
   },
 ];
 
-const FUNDING_SOURCE_OPTIONS = [
+const PAID_SOURCE_OPTIONS = [
   { key: 'replace_off', label: 'Replace Off' },
   { key: 'overtime', label: 'Akumulasi Lembur' },
-  { key: 'unpaid', label: 'Unpaid' },
+  { key: 'unpaid', label: 'Unpaid saja' },
 ];
 
 const STATUS_META = {
@@ -257,7 +260,8 @@ export default function Perizinan() {
   const [doctorPreview, setDoctorPreview] = useState(null);
   const [startTime, setStartTime] = useState('08:00');
   const [endTime, setEndTime] = useState('12:00');
-  const [fundingSources, setFundingSources] = useState(['replace_off']);
+  const [paidSource, setPaidSource] = useState('unpaid');
+  const [legacyMixedFunding, setLegacyMixedFunding] = useState(false);
   const [fundingBalances, setFundingBalances] = useState(null);
   const [workHoursPreview, setWorkHoursPreview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -359,19 +363,42 @@ export default function Perizinan() {
     return 0;
   }, [durationType, workHoursPreview, isPartialMode, startTime, endTime]);
 
+  const roUsable = canUseRoForLeave({
+    durationType,
+    startDate,
+    roBalance: fundingBalances?.replace_off_hours,
+  });
+  const otUsable = Number(fundingBalances?.overtime_hours || 0) > 0;
+  const roFullDayMin = getRoFullDayMinHoursClient(startDate);
+  const roBalanceNum = Number(fundingBalances?.replace_off_hours || 0);
+  const showRoGateHint = durationType === 'full_day'
+    && roBalanceNum > 0
+    && roBalanceNum < roFullDayMin;
+
+  useEffect(() => {
+    if (leaveType !== 'izin' || !fundingBalances) return;
+    if (paidSource === 'replace_off' && !roUsable) {
+      setPaidSource(otUsable ? 'overtime' : 'unpaid');
+    } else if (paidSource === 'overtime' && !otUsable) {
+      setPaidSource(roUsable ? 'replace_off' : 'unpaid');
+    }
+  }, [leaveType, fundingBalances, paidSource, roUsable, otUsable, durationType, startDate]);
+
   const fundingPreview = useMemo(() => {
-    if (leaveType !== 'izin' || previewDurationHours <= 0) return null;
+    if (leaveType !== 'izin' || previewDurationHours <= 0 || !paidSource) return null;
     return computeIzinFundingClient({
       durationHours: previewDurationHours,
-      sources: fundingSources,
+      paidSource,
       roBalance: fundingBalances?.replace_off_hours,
       overtimeBalance: fundingBalances?.overtime_hours,
     });
-  }, [leaveType, previewDurationHours, fundingSources, fundingBalances]);
+  }, [leaveType, previewDurationHours, paidSource, fundingBalances]);
 
   const izinSubmitBlocked = leaveType === 'izin' && (
-    fundingSources.length === 0
-    || (fundingPreview?.uncovered > 0)
+    !paidSource
+    || legacyMixedFunding
+    || (paidSource === 'replace_off' && !roUsable)
+    || (paidSource === 'overtime' && !otUsable)
   );
 
   const fetchAnnualBalance = useCallback(async () => {
@@ -439,7 +466,8 @@ export default function Perizinan() {
     setEndDate(todayStr());
     setStartTime('08:00');
     setEndTime('12:00');
-    setFundingSources(['replace_off', 'unpaid']);
+    setPaidSource('replace_off');
+    setLegacyMixedFunding(false);
     setReason('');
     setDoctorFile(null);
     setDoctorPreview(null);
@@ -456,11 +484,14 @@ export default function Perizinan() {
     setEndDate(item.end_date?.slice(0, 10) || todayStr());
     setStartTime(formatTimeHHmm(item.start_time) || '08:00');
     setEndTime(formatTimeHHmm(item.end_time) || '12:00');
-    setFundingSources(
-      Array.isArray(item.funding_sources) && item.funding_sources.length
-        ? item.funding_sources
-        : ['replace_off', 'unpaid']
-    );
+    const mapped = paidSourceFromFundingItem(item);
+    if (mapped == null) {
+      setLegacyMixedFunding(true);
+      setPaidSource('unpaid');
+    } else {
+      setLegacyMixedFunding(false);
+      setPaidSource(mapped);
+    }
     setReason(item.reason || '');
     setDoctorFile(null);
     setSubmitError(null);
@@ -501,7 +532,11 @@ export default function Perizinan() {
       return;
     }
     if (izinSubmitBlocked) {
-      setSubmitError('Pilih sumber izin dan pastikan saldo mencukupi (centang Unpaid untuk sisa jam).');
+      setSubmitError(
+        legacyMixedFunding
+          ? 'Pengajuan lama memakai RO + Lembur. Pilih satu sumber berbayar (atau Unpaid) lalu simpan ulang.'
+          : 'Pilih sumber izin yang valid (RO / Lembur / Unpaid).'
+      );
       return;
     }
 
@@ -518,7 +553,10 @@ export default function Perizinan() {
         formData.append('end_time', endTime);
       }
       if (leaveType === 'izin') {
-        formData.append('funding_sources', JSON.stringify(fundingSources));
+        const sources = fundingPreview?.funding_sources?.length
+          ? fundingPreview.funding_sources
+          : [paidSource];
+        formData.append('funding_sources', JSON.stringify(sources));
       }
       if (doctorFile) formData.append('doctor_note', doctorFile);
 
@@ -810,35 +848,56 @@ export default function Perizinan() {
                     <p className="text-[11px] text-blue-700 mt-0.5">
                       Saldo RO: {fundingBalances?.replace_off_hours ?? '…'} jam · Lembur: {fundingBalances?.overtime_hours ?? '…'} jam
                     </p>
+                    <p className="text-[11px] text-blue-700 mt-1">
+                      Pilih satu sumber berbayar. Sisa jam otomatis jadi Unpaid. RO dan Lembur tidak bisa digabung.
+                    </p>
                   </div>
+                  {legacyMixedFunding && (
+                    <p className="text-[11px] font-semibold text-amber-800">
+                      Data lama memakai RO + Lembur. Pilih ulang satu sumber sebelum menyimpan.
+                    </p>
+                  )}
                   <div className="space-y-2">
-                    {FUNDING_SOURCE_OPTIONS.map((opt) => (
-                      <label key={opt.key} className="flex items-center gap-2 text-[12.5px] text-blue-900">
-                        <input
-                          type="checkbox"
-                          checked={fundingSources.includes(opt.key)}
-                          onChange={(e) => {
-                            setFundingSources((prev) => {
-                              if (e.target.checked) return [...prev, opt.key];
-                              return prev.filter((s) => s !== opt.key);
-                            });
-                          }}
-                          className="rounded border-blue-300"
-                        />
-                        {opt.label}
-                      </label>
-                    ))}
+                    {PAID_SOURCE_OPTIONS.map((opt) => {
+                      const disabled = (opt.key === 'replace_off' && !roUsable)
+                        || (opt.key === 'overtime' && !otUsable);
+                      return (
+                        <label
+                          key={opt.key}
+                          className={`flex items-center gap-2 text-[12.5px] ${disabled ? 'text-blue-400' : 'text-blue-900'}`}
+                        >
+                          <input
+                            type="radio"
+                            name="izin-paid-source"
+                            value={opt.key}
+                            checked={paidSource === opt.key}
+                            disabled={disabled}
+                            onChange={() => {
+                              setPaidSource(opt.key);
+                              setLegacyMixedFunding(false);
+                            }}
+                            className="border-blue-300"
+                          />
+                          {opt.label}
+                          {opt.key === 'replace_off' && disabled && durationType === 'full_day' && roBalanceNum > 0 && (
+                            <span className="text-[10px] text-blue-500">(min {roFullDayMin}j)</span>
+                          )}
+                        </label>
+                      );
+                    })}
                   </div>
+                  {showRoGateHint && (
+                    <p className="text-[11px] text-amber-800">
+                      Saldo RO minimal {roFullDayMin} jam (
+                      {roFullDayMin === 6 ? 'Sabtu' : 'Sen–Jum'}
+                      ) untuk izin seharian. Saldo Anda: {roBalanceNum} jam.
+                    </p>
+                  )}
                   {fundingPreview && previewDurationHours > 0 && (
                     <div className="text-[11px] text-blue-800 space-y-0.5 border-t border-blue-200 pt-2">
                       <div>Potong RO: {fundingPreview.funding_ro_hours} jam</div>
                       <div>Potong Lembur: {fundingPreview.funding_overtime_hours} jam</div>
                       <div>Unpaid: {fundingPreview.funding_unpaid_hours} jam</div>
-                      {fundingPreview.uncovered > 0 && (
-                        <div className="text-red-600 font-semibold">
-                          Saldo tidak cukup ({fundingPreview.uncovered} jam) — centang Unpaid
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>

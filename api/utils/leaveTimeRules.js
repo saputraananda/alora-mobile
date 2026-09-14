@@ -7,6 +7,10 @@ import {
 import { getOvertimeBalance, getReplaceOffBalance } from './ledgerService.js';
 
 const VALID_FUNDING_SOURCES = new Set(['replace_off', 'overtime', 'unpaid']);
+const VALID_PAID_SOURCES = new Set(['replace_off', 'overtime', 'unpaid']);
+
+export const RO_FULL_DAY_MIN_HOURS_WEEKDAY = 8;
+export const RO_FULL_DAY_MIN_HOURS_SATURDAY = 6;
 
 export function formatTimeHHmm(timeVal) {
   if (!timeVal) return null;
@@ -81,6 +85,28 @@ export function assertIzinSameDayRules(leaveType, durationType, startDate) {
   }
 }
 
+export function getRoFullDayMinHours(dateStr) {
+  const dow = jakartaWeekday(dateStr);
+  if (dow === 6) return RO_FULL_DAY_MIN_HOURS_SATURDAY;
+  return RO_FULL_DAY_MIN_HOURS_WEEKDAY;
+}
+
+export function assertRoFundingAllowed({ durationType, startDate, roBalance, paidSource }) {
+  if (paidSource !== 'replace_off') return;
+  if (normalizeDurationType(durationType) !== 'full_day') return;
+
+  const minHours = getRoFullDayMinHours(startDate);
+  const balance = Math.max(0, Number(roBalance) || 0);
+  if (balance >= minHours) return;
+
+  const dayLabel = jakartaWeekday(startDate) === 6 ? 'Sabtu' : 'Sen–Jum';
+  const error = new Error(
+    `Saldo Replace Off minimal ${minHours} jam untuk izin seharian (${dayLabel}). Saldo Anda: ${balance} jam.`
+  );
+  error.statusCode = 422;
+  throw error;
+}
+
 export async function resolveLeaveTimes({
   durationType,
   startDate,
@@ -145,64 +171,121 @@ export function parseFundingSources(raw) {
   return [...new Set(value.filter((s) => VALID_FUNDING_SOURCES.has(s)))];
 }
 
-export function computeIzinFunding({ durationHours, sources, roBalance, overtimeBalance }) {
+export function normalizePaidSource(sources) {
+  const list = Array.isArray(sources) ? sources : [];
+  const hasRo = list.includes('replace_off');
+  const hasOt = list.includes('overtime');
+  const hasUnpaid = list.includes('unpaid');
+
+  if (hasRo && hasOt) {
+    const error = new Error('Tidak boleh menggabungkan Replace Off dan Lembur dalam satu izin.');
+    error.statusCode = 422;
+    throw error;
+  }
+  if (hasRo) return 'replace_off';
+  if (hasOt) return 'overtime';
+  if (hasUnpaid) return 'unpaid';
+
+  const error = new Error('Pilih sumber izin (Replace Off / Lembur / Unpaid)');
+  error.statusCode = 422;
+  throw error;
+}
+
+function buildFundingSourcesResult({ fundingRo, fundingOvertime, fundingUnpaid, paidSource }) {
+  const sources = [];
+  if (fundingRo > 0) sources.push('replace_off');
+  if (fundingOvertime > 0) sources.push('overtime');
+  if (fundingUnpaid > 0) sources.push('unpaid');
+  if (sources.length === 0 && VALID_PAID_SOURCES.has(paidSource)) {
+    sources.push(paidSource);
+  }
+  return sources;
+}
+
+export function computeIzinFunding({
+  durationHours,
+  paidSource,
+  roBalance,
+  overtimeBalance,
+  durationType,
+  startDate,
+}) {
   const hours = Math.round(Number(durationHours) * 100) / 100;
   if (!Number.isFinite(hours) || hours <= 0) {
     const error = new Error('Durasi izin tidak valid');
     error.statusCode = 422;
     throw error;
   }
-  if (!sources?.length) {
-    const error = new Error('Pilih minimal satu sumber izin (Replace Off / Lembur / Unpaid)');
+  if (!VALID_PAID_SOURCES.has(paidSource)) {
+    const error = new Error('Pilih sumber izin (Replace Off / Lembur / Unpaid)');
     error.statusCode = 422;
     throw error;
   }
 
-  let remaining = hours;
+  assertRoFundingAllowed({
+    durationType,
+    startDate,
+    roBalance,
+    paidSource,
+  });
+
+  const ro = Math.max(0, Number(roBalance) || 0);
+  const ot = Math.max(0, Number(overtimeBalance) || 0);
+
   let fundingRo = 0;
   let fundingOvertime = 0;
-
-  if (sources.includes('replace_off')) {
-    const use = Math.min(remaining, Math.max(0, Number(roBalance) || 0));
-    fundingRo = Math.round(use * 100) / 100;
-    remaining = Math.round((remaining - use) * 100) / 100;
-  }
-
-  if (sources.includes('overtime') && remaining > 0) {
-    const use = Math.min(remaining, Math.max(0, Number(overtimeBalance) || 0));
-    fundingOvertime = Math.round(use * 100) / 100;
-    remaining = Math.round((remaining - use) * 100) / 100;
-  }
-
   let fundingUnpaid = 0;
-  if (remaining > 0) {
-    if (sources.includes('unpaid')) {
-      fundingUnpaid = remaining;
-      remaining = 0;
-    } else {
-      const error = new Error(
-        `Saldo Replace Off/Lembur tidak mencukupi (kurang ${remaining} jam). Centang Unpaid atau kurangi durasi.`
-      );
+
+  if (paidSource === 'unpaid') {
+    fundingUnpaid = hours;
+  } else if (paidSource === 'replace_off') {
+    if (ro <= 0) {
+      const error = new Error('Saldo Replace Off tidak tersedia. Pilih Lembur atau Unpaid.');
       error.statusCode = 422;
       throw error;
     }
+    fundingRo = Math.min(hours, ro);
+    fundingRo = Math.round(fundingRo * 100) / 100;
+    fundingUnpaid = Math.round((hours - fundingRo) * 100) / 100;
+  } else if (paidSource === 'overtime') {
+    if (ot <= 0) {
+      const error = new Error('Saldo Lembur tidak tersedia. Pilih Replace Off atau Unpaid.');
+      error.statusCode = 422;
+      throw error;
+    }
+    fundingOvertime = Math.min(hours, ot);
+    fundingOvertime = Math.round(fundingOvertime * 100) / 100;
+    fundingUnpaid = Math.round((hours - fundingOvertime) * 100) / 100;
   }
 
   return {
     funding_ro_hours: fundingRo,
     funding_overtime_hours: fundingOvertime,
     funding_unpaid_hours: fundingUnpaid,
-    funding_sources: sources,
+    funding_sources: buildFundingSourcesResult({
+      fundingRo,
+      fundingOvertime,
+      fundingUnpaid,
+      paidSource,
+    }),
   };
 }
 
-export async function resolveIzinFundingForSubmit(employeeId, durationHours, sources) {
+export async function resolveIzinFundingForSubmit(
+  employeeId,
+  durationHours,
+  sources,
+  { durationType, startDate } = {}
+) {
+  const paidSource = normalizePaidSource(sources);
   const roBalance = await getReplaceOffBalance(employeeId);
   const overtimeBalance = await getOvertimeBalance(employeeId);
   return computeIzinFunding({
     durationHours,
-    sources,
+    paidSource,
     roBalance,
     overtimeBalance,
+    durationType,
+    startDate,
   });
 }
