@@ -7,6 +7,7 @@ import Modal from '../components/Modal.jsx';
 import FaceScanModal from '../components/auth/FaceScanModal.jsx';
 import { formatName } from '../utils/FormatName.js';
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
+import usePwaInstall from '../hooks/usePwaInstall.js';
 import { 
   User, 
   Mail, 
@@ -24,7 +25,8 @@ import {
   Calendar,
   Briefcase,
   ShieldCheck,
-  Info
+  Info,
+  Download
 } from 'lucide-react';
 
 function getAuthToken() {
@@ -38,6 +40,9 @@ export default function Profile() {
   const navigate = useNavigate();
 
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [installBusy, setInstallBusy] = useState(false);
+  const [installFailOpen, setInstallFailOpen] = useState(false);
+  const { isInstalled, promptInstall } = usePwaInstall();
   const [currentUser, setCurrentUser] = useState({
     userId: null,
     employee_id: 1,
@@ -259,6 +264,17 @@ export default function Profile() {
     localStorage.removeItem('user');
     sessionStorage.clear();
     navigate('/login');
+  };
+
+  const handleInstallClick = async () => {
+    if (installBusy || isInstalled) return;
+    setInstallBusy(true);
+    try {
+      const outcome = await promptInstall();
+      if (outcome === 'unavailable') setInstallFailOpen(true);
+    } finally {
+      setInstallBusy(false);
+    }
   };
 
   const getInitials = (name) => {
@@ -535,6 +551,23 @@ export default function Profile() {
               </div>
             </div>
 
+            {isInstalled ? (
+              <p className="text-center text-[12px] font-medium text-slate-400 mt-1 mb-1">
+                Aplikasi sudah terpasang
+              </p>
+            ) : (
+              <button
+                id="profile-install-btn"
+                type="button"
+                onClick={handleInstallClick}
+                disabled={installBusy}
+                className="w-full py-3.5 rounded-[22px] bg-navy-950/10 text-navy-950 text-[13.5px] font-black hover:bg-navy-950/15 active:scale-[.97] transition-all flex items-center justify-center gap-2 mt-1 cursor-pointer disabled:opacity-60"
+              >
+                <Download className="w-4 h-4" />
+                <span>{installBusy ? 'Memproses...' : 'Install Aplikasi'}</span>
+              </button>
+            )}
+
             {/* Logout button */}
             <button
               id="profile-logout-btn"
@@ -564,6 +597,16 @@ export default function Profile() {
         confirmText="Keluar"
         cancelText="Batal"
         variant="danger"
+      />
+
+      <ConfirmModal
+        isOpen={installFailOpen}
+        onClose={() => setInstallFailOpen(false)}
+        onConfirm={() => setInstallFailOpen(false)}
+        title="Install belum siap"
+        message="Buka aplikasi di Chrome (bukan WebView), pastikan koneksi HTTPS, lalu ketuk Install Aplikasi lagi."
+        confirmText="Mengerti"
+        cancelText=""
       />
 
       {/* ===== FACE SCAN MODAL ===== */}
