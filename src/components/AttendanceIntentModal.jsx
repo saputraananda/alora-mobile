@@ -117,7 +117,7 @@ function AttendanceIntentForm({
               Sesuai pengajuan yang sudah disetujui. Absensi hari ini memakai mode ini.
             </p>
             {approved?.reason && (
-              <p className="mt-2 text-[11px] text-violet-700">Alasan: {approved.reason}</p>
+              <p className="mt-2 text-[11px] text-violet-700">Tugas: {approved.reason}</p>
             )}
           </div>
         )}

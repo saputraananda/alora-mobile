@@ -106,13 +106,13 @@ export default function AttendanceModeRequestPanel({ api, requestType }) {
             />
           </div>
           <div>
-            <label className="text-[12px] font-bold text-slate-700">Alasan</label>
+            <label className="text-[12px] font-bold text-slate-700">Tugas yang dikerjakan</label>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={3}
               className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-[13px] resize-none"
-              placeholder={`Jelaskan alasan ${typeLabel}...`}
+              placeholder={`Jelaskan tugas yang dikerjakan untuk ${typeLabel}...`}
               required
             />
           </div>

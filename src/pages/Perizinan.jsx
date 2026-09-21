@@ -910,11 +910,27 @@ export default function Perizinan() {
                   ) : annualBalance?.eligible ? (
                     <>
                       <p className="text-[13px] font-bold text-emerald-800">
-                        Saldo cuti tahunan: {annualBalance.balance_days} hari
+                        Saldo cuti tersedia:{' '}
+                        {annualBalance.available_days != null
+                          ? annualBalance.available_days
+                          : annualBalance.balance_days}{' '}
+                        hari
                       </p>
                       <p className="text-[11px] text-emerald-700">
                         Siklus {formatDateID(annualBalance.cycle_start)} – {formatDateID(annualBalance.cycle_end)}
                       </p>
+                      {annualBalance.usable_until && (
+                        <p className="text-[11px] text-emerald-700">
+                          Dapat dipakai s/d {formatDateID(annualBalance.usable_until)}
+                        </p>
+                      )}
+                      {annualBalance.previous_usable_until && (
+                        <p className="text-[11px] text-emerald-700">
+                          Sisa periode sebelumnya:{' '}
+                          {annualBalance.previous_balance_days ?? 0} hari (berlaku s/d{' '}
+                          {formatDateID(annualBalance.previous_usable_until)})
+                        </p>
+                      )}
                       {previewLeaveDays > 0 && (
                         <p className="text-[11px] text-emerald-600">
                           Pengajuan ini: ~{previewLeaveDays} hari kerja (estimasi, Minggu dikecualikan)
