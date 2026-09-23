@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { Server as SocketServer } from 'socket.io';
 import app from './api/index.js';
-import { getAppBuildId } from './api/utils/appBuildVersion.js';
+import { getAppBuildId } from './api/shared/utils/appBuildVersion.js';
 
 // Resolve directory paths in ES module
 const __filename = fileURLToPath(import.meta.url);

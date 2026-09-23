@@ -9,6 +9,39 @@
   h1, h2, h3, h4, h5, h6 {
     font-family: 'Plus Jakarta Sans', 'Poppins', sans-serif;
   }
+
+  /* iOS Safari: keep native date/time fields left-aligned and width-bounded */
+  input[type='date'],
+  input[type='time'] {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    text-align: left;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  input[type='date']::-webkit-date-and-time-value,
+  input[type='time']::-webkit-date-and-time-value {
+    text-align: left;
+    min-width: 0;
+    width: 100%;
+  }
+
+  input[type='date']::-webkit-datetime-edit,
+  input[type='time']::-webkit-datetime-edit {
+    text-align: left;
+    min-width: 0;
+    width: 100%;
+    padding: 0;
+  }
+
+  input[type='date']::-webkit-datetime-edit-fields-wrapper,
+  input[type='time']::-webkit-datetime-edit-fields-wrapper {
+    min-width: 0;
+  }
 }
 
 /* Custom premium backdrop-blur animations or gradient background glow */

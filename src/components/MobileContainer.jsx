@@ -1,5 +1,5 @@
 import React from 'react';
-import ScrollToTop from './ScrollToTop.jsx';
+import ScrollToTop from '../utils/ScrollToTop.jsx';
 
 /**
  * Mobile-First Container Component
