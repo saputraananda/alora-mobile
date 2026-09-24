@@ -9,11 +9,15 @@ import {
   countLeaveDays,
   deductAnnualLeaveForApprovedLeave,
   getAnnualLeaveBalance,
+  restoreAnnualLeaveForLeave,
 } from './utils/annualLeaveService.js';
 import { getApproverContext } from '../../shared/utils/approvalAccess.js';
 import { isRoOnlyIzin } from './utils/leaveApprovalRules.js';
-import { applyLeaveFundingOnApprove } from './utils/leaveFundingService.js';
-import { getOvertimeBalance, getReplaceOffBalance } from './utils/ledgerService.js';
+import {
+  applyLeaveFundingOnApprove,
+  restoreLeaveFundingForLeave,
+} from './utils/leaveFundingService.js';
+import { getOvertimeUsableBalance, getReplaceOffUsableBalance } from './utils/ledgerService.js';
 import {
   assertIzinSameDayRules,
   formatTimeHHmm,
@@ -49,7 +53,14 @@ const ALLOWED_DURATION_TYPES = new Set([
   'half_day_afternoon',
 ]);
 const ACTIVE_LEAVE_STATUSES = ['Pending_Supervisor', 'Pending_HRD', 'disetujui'];
-const EDITABLE_LEAVE_STATUSES = ['Pending_Supervisor', 'Rejected_Supervisor', 'Rejected_HRD'];
+const ALL_LEAVE_STATUSES = [
+  'Pending_Supervisor',
+  'Pending_HRD',
+  'Rejected_Supervisor',
+  'Rejected_HRD',
+  'disetujui',
+];
+const EDITABLE_LEAVE_STATUSES = ALL_LEAVE_STATUSES;
 
 function todayDateString() {
   return todayDateStringJakarta();
@@ -135,9 +146,11 @@ async function buildLeaveTimeAndFundingFields(employeeId, {
   let end_time = null;
   let leave_duration_hours = null;
 
-  const isMultiDayCuti = leaveType === 'cuti' && startDate !== endDate && !isPartialDuration(durationType);
+  const isMultiDay = startDate !== endDate && !isPartialDuration(durationType);
+  const isMultiDayCuti = leaveType === 'cuti' && isMultiDay;
+  const isMultiDaySakit = leaveType === 'sakit' && isMultiDay;
 
-  if (!isMultiDayCuti) {
+  if (!isMultiDayCuti && !isMultiDaySakit) {
     const resolved = await resolveLeaveTimes({
       durationType,
       startDate,
@@ -161,6 +174,7 @@ async function buildLeaveTimeAndFundingFields(employeeId, {
     const funding = await resolveIzinFundingForSubmit(employeeId, leave_duration_hours, sources, {
       durationType: resolvedDurationType,
       startDate,
+      endDate,
     });
     funding_ro_hours = funding.funding_ro_hours;
     funding_overtime_hours = funding.funding_overtime_hours;
@@ -231,8 +245,8 @@ export const serveDoctorNote = (req, res) => {
 
 export const getFundingBalances = async (req, res) => {
   try {
-    const replace_off_hours = await getReplaceOffBalance(req.employeeId);
-    const overtime_hours = await getOvertimeBalance(req.employeeId);
+    const replace_off_hours = await getReplaceOffUsableBalance(req.employeeId);
+    const overtime_hours = await getOvertimeUsableBalance(req.employeeId);
     return res.json({ replace_off_hours, overtime_hours });
   } catch (error) {
     console.error('[leave] getFundingBalances', error);
@@ -545,7 +559,12 @@ export const updateLeave = async (req, res) => {
       return res.status(404).json({ message: 'Pengajuan tidak ditemukan' });
     }
     if (!EDITABLE_LEAVE_STATUSES.includes(existing.status)) {
-      return res.status(403).json({ message: 'Pengajuan yang sudah diproses tidak dapat diubah' });
+      return res.status(403).json({ message: 'Pengajuan tidak dapat diubah' });
+    }
+
+    if (existing.status === 'disetujui') {
+      await restoreLeaveFundingForLeave(existing);
+      await restoreAnnualLeaveForLeave(existing);
     }
 
     const requester = await getRequesterJobContext(employeeId);
@@ -699,7 +718,12 @@ export const cancelLeave = async (req, res) => {
       return res.status(404).json({ message: 'Pengajuan tidak ditemukan' });
     }
     if (!EDITABLE_LEAVE_STATUSES.includes(existing.status)) {
-      return res.status(403).json({ message: 'Hanya pengajuan menunggu supervisor atau ditolak yang dapat dibatalkan' });
+      return res.status(403).json({ message: 'Pengajuan tidak dapat dibatalkan' });
+    }
+
+    if (existing.status === 'disetujui') {
+      await restoreLeaveFundingForLeave(existing);
+      await restoreAnnualLeaveForLeave(existing);
     }
 
     if (existing.doctor_note_file) deleteDoctorFile(existing.doctor_note_file);

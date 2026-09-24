@@ -12,7 +12,7 @@ import {
   getWorkScheduleForDate,
   isOffDay,
 } from '../../shared/utils/workScheduleRules.js';
-import { getOvertimeBalance, getReplaceOffBalance } from '../perizinan/utils/ledgerService.js';
+import { getOvertimeUsableBalance, getReplaceOffUsableBalance } from '../perizinan/utils/ledgerService.js';
 import { getEmployeeDayContext, getEmployeeMonthFinalStatuses } from './utils/attendanceStatusResolver.js';
 import {
   assertModeAllowedForDay,
@@ -389,8 +389,8 @@ export const getPunchContext = async (req, res) => {
 
 export const getAttendanceBalances = async (req, res) => {
   try {
-    const overtimeHours = await getOvertimeBalance(req.employeeId);
-    const replaceOffHours = await getReplaceOffBalance(req.employeeId);
+    const overtimeHours = await getOvertimeUsableBalance(req.employeeId);
+    const replaceOffHours = await getReplaceOffUsableBalance(req.employeeId);
     return res.json({
       overtime_hours: overtimeHours,
       replace_off_hours: replaceOffHours,

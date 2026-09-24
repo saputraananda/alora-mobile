@@ -108,3 +108,41 @@ export function buildPeriodRange(month, year) {
     periodEnd: `${year}-${String(month).padStart(2, '0')}-25`,
   };
 }
+
+/**
+ * Map a calendar date to company cutoff period (26 prev → 25 current label month).
+ * Day >= 26 belongs to the next month's period label.
+ */
+export function dateToCutoffPeriod(dateStr) {
+  const s = toDateOnlyJakarta(dateStr) || String(dateStr || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const y = Number(s.slice(0, 4));
+  const m = Number(s.slice(5, 7));
+  const d = Number(s.slice(8, 10));
+  let month = m;
+  let year = y;
+  if (d >= 26) {
+    month = m === 12 ? 1 : m + 1;
+    year = m === 12 ? y + 1 : y;
+  }
+  const range = buildPeriodRange(month, year);
+  if (!range) return null;
+  return { month, year, periodStart: range.periodStart, periodEnd: range.periodEnd };
+}
+
+export function shiftCutoffPeriod({ month, year }, deltaMonths = 0) {
+  const m0 = Number(month);
+  const y0 = Number(year);
+  if (!(m0 >= 1 && m0 <= 12 && y0 >= 2000)) return null;
+  const total = y0 * 12 + (m0 - 1) + Number(deltaMonths || 0);
+  const newYear = Math.floor(total / 12);
+  const newMonth = (total % 12) + 1;
+  if (newYear < 2000) return null;
+  const range = buildPeriodRange(newMonth, newYear);
+  if (!range) return null;
+  return { month: newMonth, year: newYear, periodStart: range.periodStart, periodEnd: range.periodEnd };
+}
+
+export function getCutoffPeriodForToday() {
+  return dateToCutoffPeriod(todayDateStringJakarta());
+}

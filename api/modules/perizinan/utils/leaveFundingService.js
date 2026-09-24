@@ -42,3 +42,64 @@ export async function applyLeaveFundingOnApprove(leave) {
 
   return { roHours, otHours };
 }
+
+/** Reverse RO/OT used rows so leave can be re-approved after edit/cancel. */
+export async function restoreLeaveFundingForLeave(leave) {
+  if (!leave || leave.leave_type !== 'izin') return null;
+
+  const employeeId = leave.employee_id;
+  const leaveId = leave.id;
+
+  const [roUsedRows] = await aloraMobilePool.query(
+    `SELECT id, hours FROM tr_replace_off_ledger
+     WHERE leave_id = ? AND mutation_type = 'used'`,
+    [leaveId]
+  );
+  const [otUsedRows] = await aloraMobilePool.query(
+    `SELECT id, hours FROM tr_overtime_ledger
+     WHERE leave_id = ? AND mutation_type = 'used'`,
+    [leaveId]
+  );
+
+  if ((!roUsedRows || roUsedRows.length === 0) && (!otUsedRows || otUsedRows.length === 0)) {
+    return null;
+  }
+
+  let restoredRo = 0;
+  let restoredOt = 0;
+
+  for (const row of roUsedRows || []) {
+    const hours = Number(row.hours) || 0;
+    if (hours > 0) {
+      await appendReplaceOffLedger({
+        employeeId,
+        leaveId,
+        mutationType: 'restored',
+        hours,
+        note: `Restore izin diedit/dibatalkan #${leaveId}`,
+      });
+      restoredRo += hours;
+    }
+    await aloraMobilePool.query('DELETE FROM tr_replace_off_ledger WHERE id = ?', [row.id]);
+  }
+
+  for (const row of otUsedRows || []) {
+    const hours = Number(row.hours) || 0;
+    if (hours > 0) {
+      await appendOvertimeLedger({
+        employeeId,
+        leaveId,
+        mutationType: 'restored',
+        hours,
+        note: `Restore izin diedit/dibatalkan #${leaveId}`,
+      });
+      restoredOt += hours;
+    }
+    await aloraMobilePool.query('DELETE FROM tr_overtime_ledger WHERE id = ?', [row.id]);
+  }
+
+  return {
+    restoredRo: Math.round(restoredRo * 100) / 100,
+    restoredOt: Math.round(restoredOt * 100) / 100,
+  };
+}

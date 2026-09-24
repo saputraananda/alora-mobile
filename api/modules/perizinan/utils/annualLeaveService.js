@@ -449,3 +449,36 @@ export async function deductAnnualLeaveForApprovedLeave(leave) {
 
   return results.length === 1 ? results[0] : results;
 }
+
+/** Reverse cuti used rows so leave can be re-approved after edit/cancel. */
+export async function restoreAnnualLeaveForLeave(leave) {
+  if (!leave || leave.leave_type !== 'cuti') return null;
+
+  const [usedRows] = await aloraMobilePool.query(
+    `SELECT id, leave_cycle_start, days FROM tr_annual_leave_ledger
+     WHERE leave_id = ? AND mutation_type = 'used'`,
+    [leave.id]
+  );
+  if (!usedRows || usedRows.length === 0) return null;
+
+  const results = [];
+  for (const row of usedRows) {
+    const days = Number(row.days) || 0;
+    const cycleStart = toDateOnly(row.leave_cycle_start);
+    if (days > 0 && cycleStart) {
+      results.push(
+        await appendAnnualLeaveLedger({
+          employeeId: leave.employee_id,
+          cycleStart,
+          leaveId: leave.id,
+          mutationType: 'restored',
+          days,
+          note: `Restore cuti diedit/dibatalkan #${leave.id}`,
+        })
+      );
+    }
+    await aloraMobilePool.query('DELETE FROM tr_annual_leave_ledger WHERE id = ?', [row.id]);
+  }
+
+  return results.length === 1 ? results[0] : results;
+}

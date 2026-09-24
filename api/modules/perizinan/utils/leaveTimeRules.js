@@ -1,10 +1,11 @@
 import {
+  addDaysDateString,
   getWorkScheduleForDate,
   isOffDay,
   jakartaWeekday,
   todayDateStringJakarta,
 } from '../../../shared/utils/workScheduleRules.js';
-import { getOvertimeBalance, getReplaceOffBalance } from './ledgerService.js';
+import { getOvertimeUsableBalance, getReplaceOffUsableBalance } from './ledgerService.js';
 
 const VALID_FUNDING_SOURCES = new Set(['replace_off', 'overtime', 'unpaid']);
 const VALID_PAID_SOURCES = new Set(['replace_off', 'overtime', 'unpaid']);
@@ -91,15 +92,67 @@ export function getRoFullDayMinHours(dateStr) {
   return RO_FULL_DAY_MIN_HOURS_WEEKDAY;
 }
 
-export function assertRoFundingAllowed({ durationType, startDate, roBalance, paidSource }) {
+export async function listWorkDaysInRange(startDate, endDate) {
+  const start = String(startDate || '').slice(0, 10);
+  const end = String(endDate || start).slice(0, 10);
+  if (!start || !end || start > end) return [];
+
+  const days = [];
+  for (let d = start; d <= end; d = addDaysDateString(d, 1)) {
+    if (!(await isOffDay(d))) days.push(d);
+  }
+  return days;
+}
+
+export async function sumFullDayHoursInRange(startDate, endDate) {
+  const workDays = await listWorkDaysInRange(startDate, endDate);
+  if (workDays.length === 0) {
+    const error = new Error('Rentang tidak mengandung hari kerja');
+    error.statusCode = 422;
+    throw error;
+  }
+
+  let total = 0;
+  for (const d of workDays) {
+    const hours = await getDefaultWorkHoursForDate(d);
+    const dayHours = computeLeaveDurationHours(hours.start_time, hours.end_time);
+    total += Number(dayHours) || 0;
+  }
+  return {
+    workDays,
+    totalHours: Math.round(total * 100) / 100,
+  };
+}
+
+export async function sumRoFullDayMinHoursInRange(startDate, endDate) {
+  const workDays = await listWorkDaysInRange(startDate, endDate);
+  if (workDays.length === 0) {
+    const error = new Error('Rentang tidak mengandung hari kerja');
+    error.statusCode = 422;
+    throw error;
+  }
+  return workDays.reduce((sum, d) => sum + getRoFullDayMinHours(d), 0);
+}
+
+export async function assertRoFundingAllowed({
+  durationType,
+  startDate,
+  endDate,
+  roBalance,
+  paidSource,
+}) {
   if (paidSource !== 'replace_off') return;
   if (normalizeDurationType(durationType) !== 'full_day') return;
 
-  const minHours = getRoFullDayMinHours(startDate);
+  const end = endDate || startDate;
+  const minHours = await sumRoFullDayMinHoursInRange(startDate, end);
   const balance = Math.max(0, Number(roBalance) || 0);
   if (balance >= minHours) return;
 
-  const dayLabel = jakartaWeekday(startDate) === 6 ? 'Sabtu' : 'Sen–Jum';
+  const multi = String(startDate).slice(0, 10) !== String(end).slice(0, 10);
+  const dayLabel = multi
+    ? 'rentang hari kerja'
+    : (jakartaWeekday(startDate) === 6 ? 'Sabtu' : 'Sen–Jum');
   const error = new Error(
     `Saldo Replace Off minimal ${minHours} jam untuk izin seharian (${dayLabel}). Saldo Anda: ${balance} jam.`
   );
@@ -117,21 +170,30 @@ export async function resolveLeaveTimes({
   const normalized = normalizeDurationType(durationType);
   const isPartial = normalized === 'partial';
   const isFullDay = normalized === 'full_day';
+  const end = endDate || startDate;
 
-  if (isPartial && startDate !== endDate) {
+  if (isPartial && startDate !== end) {
     const error = new Error('Izin partial hanya berlaku untuk 1 hari');
     error.statusCode = 422;
     throw error;
   }
 
   if (isFullDay) {
-    const hours = await getDefaultWorkHoursForDate(startDate);
-    const durationHours =
-      startDate === endDate ? computeLeaveDurationHours(hours.start_time, hours.end_time) : null;
+    if (startDate === end) {
+      const hours = await getDefaultWorkHoursForDate(startDate);
+      return {
+        start_time: hours.start_time,
+        end_time: hours.end_time,
+        leave_duration_hours: computeLeaveDurationHours(hours.start_time, hours.end_time),
+        duration_type: 'full_day',
+      };
+    }
+
+    const { totalHours } = await sumFullDayHoursInRange(startDate, end);
     return {
-      start_time: hours.start_time,
-      end_time: hours.end_time,
-      leave_duration_hours: durationHours,
+      start_time: null,
+      end_time: null,
+      leave_duration_hours: totalHours,
       duration_type: 'full_day',
     };
   }
@@ -202,13 +264,14 @@ function buildFundingSourcesResult({ fundingRo, fundingOvertime, fundingUnpaid, 
   return sources;
 }
 
-export function computeIzinFunding({
+export async function computeIzinFunding({
   durationHours,
   paidSource,
   roBalance,
   overtimeBalance,
   durationType,
   startDate,
+  endDate,
 }) {
   const hours = Math.round(Number(durationHours) * 100) / 100;
   if (!Number.isFinite(hours) || hours <= 0) {
@@ -222,9 +285,10 @@ export function computeIzinFunding({
     throw error;
   }
 
-  assertRoFundingAllowed({
+  await assertRoFundingAllowed({
     durationType,
     startDate,
+    endDate,
     roBalance,
     paidSource,
   });
@@ -275,11 +339,11 @@ export async function resolveIzinFundingForSubmit(
   employeeId,
   durationHours,
   sources,
-  { durationType, startDate } = {}
+  { durationType, startDate, endDate } = {}
 ) {
   const paidSource = normalizePaidSource(sources);
-  const roBalance = await getReplaceOffBalance(employeeId);
-  const overtimeBalance = await getOvertimeBalance(employeeId);
+  const roBalance = await getReplaceOffUsableBalance(employeeId);
+  const overtimeBalance = await getOvertimeUsableBalance(employeeId);
   return computeIzinFunding({
     durationHours,
     paidSource,
@@ -287,5 +351,6 @@ export async function resolveIzinFundingForSubmit(
     overtimeBalance,
     durationType,
     startDate,
+    endDate,
   });
 }

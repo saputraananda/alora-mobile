@@ -9,9 +9,10 @@ import {
   computeIzinFundingClient,
   computeLeaveDurationHoursClient,
   formatTimeHHmm,
-  getRoFullDayMinHoursClient,
   isPartialDurationType,
   paidSourceFromFundingItem,
+  sumApproxFullDayHoursClient,
+  sumRoFullDayMinHoursClient,
   todayStrJakarta,
 } from '../utils/leaveTimeClient.js';
 import { getAuthToken } from '../../../utils/authSession.js';
@@ -80,7 +81,13 @@ const STATUS_META = {
   disetujui: { label: 'Disetujui', color: '#059669', bg: '#ECFDF5' },
 };
 
-const EDITABLE_STATUSES = new Set(['Pending_Supervisor', 'Rejected_Supervisor', 'Rejected_HRD']);
+const EDITABLE_STATUSES = new Set([
+  'Pending_Supervisor',
+  'Pending_HRD',
+  'Rejected_Supervisor',
+  'Rejected_HRD',
+  'disetujui',
+]);
 
 const LEAVE_TYPE_LABEL = { izin: 'Izin', sakit: 'Sakit', cuti: 'Cuti' };
 const MONTHS_ID = [
@@ -316,18 +323,18 @@ export default function Perizinan() {
   }, []);
 
   useEffect(() => {
-    if (leaveType !== 'cuti') setEndDate(startDate);
-  }, [leaveType, startDate]);
-
-  useEffect(() => {
     if (durationType !== 'full_day' || isPartialDurationType(durationType)) {
       setEndDate(startDate);
+    } else if (endDate < startDate) {
+      setEndDate(startDate);
     }
-  }, [durationType, startDate]);
+  }, [durationType, startDate, endDate]);
 
   const isIzinToday = leaveType === 'izin' && startDate === todayStr();
   const isPartialMode = durationType === 'partial' || isPartialDurationType(durationType);
   const showFullDayOption = !(leaveType === 'izin' && isIzinToday);
+  const showDateRange = durationType === 'full_day' && !isPartialMode;
+  const isMultiDayRange = showDateRange && startDate !== endDate;
 
   useEffect(() => {
     if (isIzinToday && durationType === 'full_day') {
@@ -346,16 +353,19 @@ export default function Perizinan() {
   }, [formOpen, leaveType]);
 
   useEffect(() => {
-    if (!formOpen || durationType !== 'full_day' || isPartialMode) {
+    if (!formOpen || durationType !== 'full_day' || isPartialMode || isMultiDayRange) {
       setWorkHoursPreview(null);
       return;
     }
     api.get('/leave/work-hours', { params: { date: startDate } })
       .then(({ data }) => setWorkHoursPreview(data))
       .catch(() => setWorkHoursPreview(null));
-  }, [formOpen, durationType, isPartialMode, startDate]);
+  }, [formOpen, durationType, isPartialMode, isMultiDayRange, startDate]);
 
   const previewDurationHours = useMemo(() => {
+    if (durationType === 'full_day' && isMultiDayRange) {
+      return sumApproxFullDayHoursClient(startDate, endDate);
+    }
     if (durationType === 'full_day' && workHoursPreview) {
       return computeLeaveDurationHoursClient(workHoursPreview.start_time, workHoursPreview.end_time);
     }
@@ -363,15 +373,16 @@ export default function Perizinan() {
       return computeLeaveDurationHoursClient(startTime, endTime);
     }
     return 0;
-  }, [durationType, workHoursPreview, isPartialMode, startTime, endTime]);
+  }, [durationType, isMultiDayRange, startDate, endDate, workHoursPreview, isPartialMode, startTime, endTime]);
 
   const roUsable = canUseRoForLeave({
     durationType,
     startDate,
+    endDate,
     roBalance: fundingBalances?.replace_off_hours,
   });
   const otUsable = Number(fundingBalances?.overtime_hours || 0) > 0;
-  const roFullDayMin = getRoFullDayMinHoursClient(startDate);
+  const roFullDayMin = sumRoFullDayMinHoursClient(startDate, endDate);
   const roBalanceNum = Number(fundingBalances?.replace_off_hours || 0);
   const showRoGateHint = durationType === 'full_day'
     && roBalanceNum > 0
@@ -384,7 +395,7 @@ export default function Perizinan() {
     } else if (paidSource === 'overtime' && !otUsable) {
       setPaidSource(roUsable ? 'replace_off' : 'unpaid');
     }
-  }, [leaveType, fundingBalances, paidSource, roUsable, otUsable, durationType, startDate]);
+  }, [leaveType, fundingBalances, paidSource, roUsable, otUsable, durationType, startDate, endDate]);
 
   const fundingPreview = useMemo(() => {
     if (leaveType !== 'izin' || previewDurationHours <= 0 || !paidSource) return null;
@@ -485,6 +496,12 @@ export default function Perizinan() {
   };
 
   const openEdit = async (item) => {
+    if (item.status === 'disetujui') {
+      const ok = window.confirm(
+        'Pengajuan yang sudah disetujui akan diajukan ulang untuk approval. Saldo yang terpotong dikembalikan dulu.'
+      );
+      if (!ok) return;
+    }
     setEditTarget(item);
     setLeaveType(item.leave_type);
     const dt = isPartialDurationType(item.duration_type) ? 'partial' : item.duration_type;
@@ -823,7 +840,13 @@ export default function Perizinan() {
                 )}
               </div>
 
-              {(durationType === 'full_day' && workHoursPreview) && (
+              {(durationType === 'full_day' && isMultiDayRange && previewDurationHours > 0) && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[12px] text-slate-600">
+                  Perkiraan {previewDurationHours} jam (hari kerja dalam rentang)
+                </div>
+              )}
+
+              {(durationType === 'full_day' && !isMultiDayRange && workHoursPreview) && (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[12px] text-slate-600">
                   Jam kerja: {workHoursPreview.start_time}–{workHoursPreview.end_time}
                   {previewDurationHours > 0 && ` (${previewDurationHours} jam)`}
@@ -863,6 +886,9 @@ export default function Perizinan() {
                     <p className="text-[11px] text-blue-700 mt-1">
                       Pilih satu sumber berbayar. Sisa jam otomatis jadi Unpaid. RO dan Lembur tidak bisa digabung.
                     </p>
+                    <p className="text-[11px] text-blue-700 mt-1">
+                      Saldo lembur = periode berjalan (26–25). RO berlaku s.d. 3 periode setelah earn.
+                    </p>
                   </div>
                   {legacyMixedFunding && (
                     <p className="text-[11px] font-semibold text-amber-800">
@@ -900,9 +926,11 @@ export default function Perizinan() {
                   </div>
                   {showRoGateHint && (
                     <p className="text-[11px] text-amber-800">
-                      Saldo RO minimal {roFullDayMin} jam (
-                      {roFullDayMin === 6 ? 'Sabtu' : 'Sen–Jum'}
-                      ) untuk izin seharian. Saldo Anda: {roBalanceNum} jam.
+                      Saldo RO minimal {roFullDayMin} jam
+                      {isMultiDayRange
+                        ? ' (jumlah hari kerja dalam rentang)'
+                        : ` (${roFullDayMin === 6 ? 'Sabtu' : 'Sen–Jum'})`}
+                      {' '}untuk izin seharian. Saldo Anda: {roBalanceNum} jam.
                     </p>
                   )}
                   {fundingPreview && previewDurationHours > 0 && (
@@ -970,9 +998,9 @@ export default function Perizinan() {
               )}
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
+                <div className={showDateRange ? '' : 'col-span-2'}>
                   <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">
-                    {leaveType === 'cuti' ? 'Tanggal Mulai' : 'Tanggal'}
+                    {showDateRange ? 'Tanggal Mulai' : 'Tanggal'}
                   </label>
                   <input
                     type="date"
@@ -982,7 +1010,7 @@ export default function Perizinan() {
                     className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[13px] bg-slate-50"
                   />
                 </div>
-                {leaveType === 'cuti' && (
+                {showDateRange && (
                   <div>
                     <label className="block text-[12px] font-semibold text-slate-600 mb-1.5">
                       Tanggal Selesai

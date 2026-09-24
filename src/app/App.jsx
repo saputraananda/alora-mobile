@@ -16,8 +16,6 @@ const Absensi = lazy(() => import('../features/absensi/pages/Absensi.jsx'));
 const Profil = lazy(() => import('../features/profil/pages/Profil.jsx'));
 const EditProfile = lazy(() => import('../features/profil/pages/EditProfile.jsx'));
 const Perizinan = lazy(() => import('../features/perizinan/pages/Perizinan.jsx'));
-const Bugar = lazy(() => import('../features/bugar/pages/Bugar.jsx'));
-const BugarTracking = lazy(() => import('../features/bugar/pages/BugarTracking.jsx'));
 const ManagementAbsensi = lazy(() => import('../features/management-absensi/pages/ManagementAbsensi.jsx'));
 const Approvals = lazy(() => import('../features/approvals/pages/Approvals.jsx'));
 
@@ -125,22 +123,6 @@ function App() {
                 element={(
                   <ProtectedRoute user={user} showSplash={showSplash}>
                     <Approvals />
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
-                path="/bugar"
-                element={(
-                  <ProtectedRoute user={user} showSplash={showSplash}>
-                    <Bugar />
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
-                path="/bugar/tracking"
-                element={(
-                  <ProtectedRoute user={user} showSplash={showSplash}>
-                    <BugarTracking />
                   </ProtectedRoute>
                 )}
               />

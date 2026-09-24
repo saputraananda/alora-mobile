@@ -6,7 +6,6 @@ import {
   CalendarCheck, 
   FileText,
   Wallet,
-  Sparkles,
   ChevronRight,
   Clock,
   CheckCircle2,
@@ -14,7 +13,6 @@ import {
   Megaphone,
   CheckSquare
 } from 'lucide-react';
-import { FaRunning } from 'react-icons/fa';
 import aloraMobileLogo from '../../../assets/images/aloramobile-white.webp';
 import Modal from '../../../components/Modal.jsx';
 import { formatName } from '../../../utils/FormatName.js';
@@ -236,8 +234,6 @@ export default function Home() {
       navigate('/perizinan');
     } else if (item.id === 'lemburro') {
       navigate('/lembur-ro');
-    } else if (item.id === 'alorabugar') {
-      navigate('/bugar');
     } else {
       openMenuModal(item.title, item.modalDesc);
     }
@@ -248,7 +244,7 @@ export default function Home() {
   const employeeCode = userData?.employee_code || "";
   const jobLevel = userData?.job_level || "Karyawan";
   const topBroadcast = broadcasts[0] || null;
-  const infoCount = 2 + (topBroadcast ? 1 : 0);
+  const infoCount = 1 + (topBroadcast ? 1 : 0);
 
   const menuItems = [
     {
@@ -270,14 +266,6 @@ export default function Home() {
           modalDesc: 'Persetujuan WFA, WOD, Lembur, dan Perizinan.',
         }]
       : []),
-    {
-      id: 'alorabugar',
-      title: 'Alora Bugar',
-      subtitle: 'Kesehatan & Kebugaran',
-      icon: <FaRunning className="w-5 h-5 text-rose-500" />,
-      badgeColor: 'bg-rose-50 border-rose-200/80',
-      modalDesc: 'Layanan Pemantauan Kesehatan & Kebugaran Kerja Pegawai.'
-    },
     {
       id: 'perizinan',
       title: 'Perizinan',
@@ -482,34 +470,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* INFO CARD 2: ALORA BUGAR */}
-            <div 
-              onClick={() => navigate('/bugar')}
-              className="bg-white rounded-[22px] p-4 border border-slate-200/80 shadow-sm flex items-start gap-3.5 cursor-pointer hover:border-rose-300 transition group"
-            >
-              <div className="w-10 h-10 rounded-[14px] bg-rose-50 text-rose-600 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <FaRunning className="w-5 h-5 text-rose-600" />
-              </div>
-              <div className="flex flex-col flex-grow">
-                <div className="flex items-center justify-between gap-2">
-                  <h4 className="text-xs font-extrabold text-navy-950">
-                    Alora Bugar
-                  </h4>
-                  <span className="text-[10px] text-slate-400 font-semibold">
-                    GPS
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
-                  Pilih fokus lalu mulai lari atau sepeda
-                </p>
-                <div className="flex items-center gap-1 text-[10px] font-bold text-rose-600 mt-2">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Ketuk untuk mulai</span>
-                </div>
-              </div>
-            </div>
-
-            {/* INFO CARD 3: PENGUMUMAN (dari SuperApp broadcast) */}
+            {/* INFO CARD: PENGUMUMAN (dari SuperApp broadcast) */}
             {!broadcastsLoading && topBroadcast && (
               <div 
                 onClick={() => openMenuModal(topBroadcast.title, topBroadcast.description)}
