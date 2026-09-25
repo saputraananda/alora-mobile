@@ -205,20 +205,24 @@ export default function Absensi() {
     let keluarUrl = null;
 
     const load = async () => {
-      try {
-        if (selectedRecord?.fotoMasukPath) {
+      if (selectedRecord?.fotoMasukPath) {
+        try {
           masukUrl = await fetchPhotoBlob(selectedRecord.fotoMasukPath);
+        } catch {
+          masukUrl = null;
         }
-        if (selectedRecord?.fotoKeluarPath) {
+      }
+      if (selectedRecord?.fotoKeluarPath) {
+        try {
           keluarUrl = await fetchPhotoBlob(selectedRecord.fotoKeluarPath);
+        } catch {
+          keluarUrl = null;
         }
-        if (!revoked) setPhotoBlobs({ masuk: masukUrl, keluar: keluarUrl });
-        else {
-          if (masukUrl) URL.revokeObjectURL(masukUrl);
-          if (keluarUrl) URL.revokeObjectURL(keluarUrl);
-        }
-      } catch {
-        if (!revoked) setPhotoBlobs({ masuk: null, keluar: null });
+      }
+      if (!revoked) setPhotoBlobs({ masuk: masukUrl, keluar: keluarUrl });
+      else {
+        if (masukUrl) URL.revokeObjectURL(masukUrl);
+        if (keluarUrl) URL.revokeObjectURL(keluarUrl);
       }
     };
 

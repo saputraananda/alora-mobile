@@ -35,9 +35,40 @@ const HO_LOCATION_CODE = 'HO-ALR';
 const ABSEN_RADIUS_KM = 2;
 const INSIDE_LOCATION_LABEL = 'HO Alora';
 const OUTSIDE_LOCATION_LABEL = 'Lokasi diluar jangkauan';
-const ATTENDANCE_BASE = path.join(getBaseUploadDir(), 'attendance');
 
-if (!fs.existsSync(ATTENDANCE_BASE)) fs.mkdirSync(ATTENDANCE_BASE, { recursive: true });
+function getAttendanceBase() {
+  return path.join(getBaseUploadDir(), 'attendance');
+}
+
+function ensureAttendanceBase() {
+  const dir = getAttendanceBase();
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+ensureAttendanceBase();
+
+function resolveAttendanceFilePath(fileName) {
+  const safe = path.basename(String(fileName || ''));
+  if (!safe || safe === '.' || safe === '..') return null;
+
+  const candidates = [
+    path.join(getAttendanceBase(), safe),
+    path.join(process.cwd(), 'uploads', 'attendance', safe),
+  ];
+
+  // Legacy: UPLOAD_BASE was .../storage without /assets
+  const base = getBaseUploadDir();
+  if (path.basename(base).toLowerCase() === 'assets') {
+    candidates.push(path.join(path.dirname(base), 'attendance', safe));
+  }
+
+  for (const fullPath of candidates) {
+    const resolved = path.resolve(fullPath);
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved;
+  }
+  return null;
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -221,15 +252,15 @@ function unlinkAttendancePhoto(employeeId, attendanceDate, fieldName, storedPath
 
   for (const name of names) {
     if (!name || name === '.' || name === '..') continue;
-    const fullPath = path.join(ATTENDANCE_BASE, name);
-    if (!fullPath.startsWith(ATTENDANCE_BASE)) continue;
-    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+    const fullPath = resolveAttendanceFilePath(name);
+    if (fullPath) fs.unlinkSync(fullPath);
   }
 }
 
 async function savePhoto(employeeId, attendanceDate, fieldName, file) {
   const fileName = attendancePhotoFileName(employeeId, attendanceDate, fieldName);
-  const filePath = path.join(ATTENDANCE_BASE, fileName);
+  const dir = ensureAttendanceBase();
+  const filePath = path.join(dir, fileName);
   const buffer = await compressToJpg(file.buffer);
   fs.writeFileSync(filePath, buffer);
   return {
@@ -457,9 +488,9 @@ export const getAbsenLocation = async (req, res) => {
 
 export const serveAttendanceFile = (req, res) => {
   const safeFileName = path.basename(req.params.filename);
-  const fullPath = path.join(ATTENDANCE_BASE, safeFileName);
+  const fullPath = resolveAttendanceFilePath(safeFileName);
 
-  if (!fs.existsSync(fullPath)) {
+  if (!fullPath) {
     return res.status(404).json({ message: 'File absensi tidak ditemukan' });
   }
 
