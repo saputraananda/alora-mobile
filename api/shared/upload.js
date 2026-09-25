@@ -3,13 +3,29 @@ import path from 'path';
 import multer from 'multer';
 
 /**
+ * Resolve upload root so it always points at .../assets when env is storage root.
+ * Prod path: /home/.../app.waschenalora.com/storage/assets
+ * Local: uploads/ (unchanged)
+ */
+function resolveUploadRoot(rawDir) {
+  const resolved = path.isAbsolute(rawDir) ? path.resolve(rawDir) : path.resolve(process.cwd(), rawDir);
+  const leaf = path.basename(resolved).toLowerCase();
+  if (leaf === 'assets') return resolved;
+  if (leaf === 'storage') return path.join(resolved, 'assets');
+  return resolved;
+}
+
+/**
  * Get base upload directory path from UPLOAD_BASE_DIR environment variable
  * Fallback to local 'uploads' directory if not specified
  */
 export const getBaseUploadDir = () => {
   const envDir = process.env.UPLOAD_BASE_DIR ? process.env.UPLOAD_BASE_DIR.trim() : '';
   if (envDir) {
-    return path.isAbsolute(envDir) ? envDir : path.resolve(process.cwd(), envDir);
+    return resolveUploadRoot(envDir);
+  }
+  if (process.env.NODE_ENV === 'production') {
+    return '/home/u420573163/domains/app.waschenalora.com/storage/assets';
   }
   // Local development default fallback: <project_root>/uploads
   return path.resolve(process.cwd(), 'uploads');
@@ -17,13 +33,18 @@ export const getBaseUploadDir = () => {
 
 /**
  * Automatically creates target subfolder inside UPLOAD_BASE_DIR if it doesn't exist yet
- * 
- * @param {string} subFolder - Relative subfolder path (e.g. 'assets/evidence', 'assets/document_leave')
+ *
+ * @param {string} subFolder - Relative subfolder path (e.g. 'evidence', 'assets/evidence')
  * @returns {string} Absolute path of created folder
  */
 export const ensureUploadFolder = (subFolder = '') => {
   const baseDir = getBaseUploadDir();
-  const targetDir = subFolder ? path.join(baseDir, subFolder) : baseDir;
+  let rel = subFolder || '';
+  // Avoid .../assets/assets/... when base already ends with assets
+  if (path.basename(baseDir).toLowerCase() === 'assets') {
+    rel = rel.replace(/^assets[/\\]/, '');
+  }
+  const targetDir = rel ? path.join(baseDir, rel) : baseDir;
 
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
