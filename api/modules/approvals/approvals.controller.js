@@ -1,5 +1,6 @@
 import { aloraMobilePool, mainPool } from '../../db/pool.js';
 import { getApproverContext } from '../../shared/utils/approvalAccess.js';
+import { dateToCutoffPeriod } from '../../shared/utils/workScheduleRules.js';
 import { MODE_REQUEST_STATUSES, toDateOnly } from '../absensi/utils/attendanceModeRequestRules.js';
 
 async function getEmployeeMap(employeeIds) {
@@ -25,6 +26,49 @@ function leaveTitle(leaveType) {
   if (t === 'sakit') return 'Sakit';
   if (t === 'izin') return 'Izin';
   return 'Perizinan';
+}
+
+function parseTodoItems(raw) {
+  if (raw == null) return null;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function roundHours(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+async function getApprovedLemburHoursMap(employeeIds, periodStart, periodEnd) {
+  const uniqueIds = [...new Set(
+    (employeeIds || []).map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
+  )];
+  if (uniqueIds.length === 0 || !periodStart || !periodEnd) return new Map();
+
+  const placeholders = uniqueIds.map(() => '?').join(',');
+  const [rows] = await aloraMobilePool.query(
+    `SELECT employee_id, COALESCE(SUM(duration_hours), 0) AS total
+     FROM tr_worker_lembur_ro
+     WHERE status = 'disetujui'
+       AND employee_id IN (${placeholders})
+       AND work_date >= ?
+       AND work_date <= ?
+     GROUP BY employee_id`,
+    [...uniqueIds, periodStart, periodEnd]
+  );
+
+  const map = new Map();
+  for (const row of rows) {
+    map.set(Number(row.employee_id), roundHours(row.total));
+  }
+  return map;
 }
 
 async function fetchModeInbox(ctx, typeFilter = null) {
@@ -155,35 +199,80 @@ async function fetchLemburInbox(ctx, typeFilter = null) {
   );
 
   const empMap = await getEmployeeMap(rows.map((r) => r.employee_id));
-  return rows
-    .filter((row) => {
-      if (Number(row.employee_id) === Number(ctx.employeeId)) return false;
-      if (row.status === 'Pending_Supervisor' && ctx.isSpv) {
-        if (ctx.departmentId != null && Number(row.department_id) !== ctx.departmentId) return false;
-        return true;
-      }
-      if (row.status === 'Pending_HRD' && ctx.isHrd) return true;
-      return false;
+  const visibleRows = rows.filter((row) => {
+    if (Number(row.employee_id) === Number(ctx.employeeId)) return false;
+    if (row.status === 'Pending_Supervisor' && ctx.isSpv) {
+      if (ctx.departmentId != null && Number(row.department_id) !== ctx.departmentId) return false;
+      return true;
+    }
+    if (row.status === 'Pending_HRD' && ctx.isHrd) return true;
+    return false;
+  });
+
+  const periodEmployeeIds = new Map();
+  for (const row of visibleRows) {
+    const workDate = toDateOnly(row.work_date);
+    const period = dateToCutoffPeriod(workDate);
+    if (!period) continue;
+    const key = `${period.periodStart}|${period.periodEnd}`;
+    if (!periodEmployeeIds.has(key)) {
+      periodEmployeeIds.set(key, {
+        periodStart: period.periodStart,
+        periodEnd: period.periodEnd,
+        employeeIds: new Set(),
+      });
+    }
+    periodEmployeeIds.get(key).employeeIds.add(Number(row.employee_id));
+  }
+
+  const approvedHoursByPeriod = new Map();
+  await Promise.all(
+    [...periodEmployeeIds.entries()].map(async ([key, group]) => {
+      const hoursMap = await getApprovedLemburHoursMap(
+        [...group.employeeIds],
+        group.periodStart,
+        group.periodEnd
+      );
+      approvedHoursByPeriod.set(key, hoursMap);
     })
-    .map((row) => {
-      const emp = empMap.get(Number(row.employee_id));
-      const hours = row.duration_hours != null ? Number(row.duration_hours) : null;
-      return {
-        kind: 'lembur',
-        id: Number(row.id),
-        employee_id: Number(row.employee_id),
-        employee_name: emp?.full_name || null,
-        title: 'Lembur',
-        subtitle: hours != null ? `${hours} jam` : (row.description || ''),
-        work_date: toDateOnly(row.work_date),
-        status: row.status,
-        action_role: row.status === 'Pending_HRD' ? 'hrd' : 'spv',
-        meta: {
-          duration_hours: hours,
-          description: row.description,
-        },
-      };
-    });
+  );
+
+  return visibleRows.map((row) => {
+    const emp = empMap.get(Number(row.employee_id));
+    const hours = row.duration_hours != null ? Number(row.duration_hours) : null;
+    const description = String(row.description || '').trim();
+    const parsedTodos = parseTodoItems(row.todo_items);
+    const todoItems = Array.isArray(parsedTodos)
+      ? parsedTodos.map((item) => String(item || '').trim()).filter(Boolean)
+      : [];
+    const workDate = toDateOnly(row.work_date);
+    const period = dateToCutoffPeriod(workDate);
+    const periodKey = period ? `${period.periodStart}|${period.periodEnd}` : null;
+    const approvedMap = periodKey ? approvedHoursByPeriod.get(periodKey) : null;
+    const approvedPeriodHours = approvedMap?.get(Number(row.employee_id)) ?? 0;
+    return {
+      kind: 'lembur',
+      id: Number(row.id),
+      employee_id: Number(row.employee_id),
+      employee_name: emp?.full_name || null,
+      title: 'Lembur',
+      subtitle: hours != null ? `${hours} jam` : '',
+      description,
+      todo_items: todoItems,
+      work_date: workDate,
+      approved_period_hours: approvedPeriodHours,
+      period_month: period?.month || null,
+      period_year: period?.year || null,
+      period_start: period?.periodStart || null,
+      period_end: period?.periodEnd || null,
+      status: row.status,
+      action_role: row.status === 'Pending_HRD' ? 'hrd' : 'spv',
+      meta: {
+        duration_hours: hours,
+        description: row.description,
+      },
+    };
+  });
 }
 
 async function buildInbox(ctx, typeFilter = 'all') {

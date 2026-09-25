@@ -28,11 +28,33 @@ const KIND_META = {
   leave: { label: 'Perizinan', color: '#D97706', bg: '#FFFBEB' },
 };
 
+const MONTH_LABEL_ID = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+];
+
 const formatDateID = (str) => {
   if (!str) return '-';
   const d = new Date(`${String(str).slice(0, 10)}T00:00:00`);
   return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 };
+
+function formatCutoffPeriodLabel(month, year) {
+  const m = Number(month);
+  const y = Number(year);
+  if (!(m >= 1 && m <= 12) || !Number.isFinite(y)) return '';
+  return `${MONTH_LABEL_ID[m - 1]} ${y}`;
+}
 
 function actionUrl(item, action) {
   const id = item.id;
@@ -184,6 +206,10 @@ export default function Approvals() {
             const meta = KIND_META[item.kind] || KIND_META.leave;
             const key = `${item.kind}-${item.id}`;
             const busy = actingId === item.id;
+            const periodLabel =
+              item.kind === 'lembur'
+                ? formatCutoffPeriodLabel(item.period_month, item.period_year)
+                : '';
             return (
               <div
                 key={key}
@@ -215,6 +241,37 @@ export default function Approvals() {
                   </div>
                   {item.subtitle ? (
                     <p className="text-[12px] text-slate-600 leading-relaxed">{item.subtitle}</p>
+                  ) : null}
+
+                  {item.kind === 'lembur' ? (
+                    <div>
+                      <div className="text-[11px] font-bold text-slate-500">
+                        Akumulasi periode{periodLabel ? ` ${periodLabel}` : ''}
+                      </div>
+                      <p className="text-[12px] text-slate-600 leading-relaxed">
+                        {Number(item.approved_period_hours) || 0} jam
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {item.kind === 'lembur' && String(item.description || '').trim() ? (
+                    <div>
+                      <div className="text-[11px] font-bold text-slate-500">Keterangan</div>
+                      <p className="text-[12px] text-slate-600 leading-relaxed">{String(item.description).trim()}</p>
+                    </div>
+                  ) : null}
+
+                  {item.kind === 'lembur' && Array.isArray(item.todo_items) && item.todo_items.length > 0 ? (
+                    <div>
+                      <div className="text-[11px] font-bold text-slate-500">To-do Pekerjaan</div>
+                      <ul className="mt-0.5 space-y-0.5">
+                        {item.todo_items.map((todo, idx) => (
+                          <li key={`${idx}-${todo}`} className="text-[12px] text-slate-600">
+                            · {todo}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ) : null}
 
                   {rejectId === key ? (
