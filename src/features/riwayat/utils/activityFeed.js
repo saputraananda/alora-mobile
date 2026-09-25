@@ -195,13 +195,21 @@ export function normalizeAttendance(item) {
   if (!dateKey) return null;
   const dateLabel = formatYmdShortId(dateKey);
   const loc = item.clock_in_location_name || item.mode_location_label || '';
-  const subtitle = loc ? `${dateLabel} · ${loc}` : dateLabel;
+  const inHm = clockHm(item.clock_in) || '--:--';
+  const outHm = clockHm(item.clock_out) || '--:--';
+  const timePart = `${inHm}–${outHm} WIB`;
+  const dateLine = `${dateLabel} ${timePart}`;
+  const subtitle = loc ? `${dateLine} · ${loc}` : dateLine;
+  const isLate =
+    Number(item.late_minutes) > 0
+    || Boolean(String(item.late_reason || '').trim())
+    || Boolean(item.late_category);
   return {
     id: `attendance-${dateKey}`,
     kind: 'attendance',
     title: 'Absensi',
     subtitle,
-    statusLabel: 'Hadir',
+    statusLabel: isLate ? 'Hadir terlambat' : 'Hadir',
     statusTone: 'ok',
     sortAt: item.clock_in || `${dateKey}T00:00:00`,
     dateKey,
