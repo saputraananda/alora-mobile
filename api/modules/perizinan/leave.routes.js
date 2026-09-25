@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate, requireEmployee } from '../../shared/middleware/auth.middleware.js';
+import { requireFileAccess } from '../../shared/middleware/fileAccess.middleware.js';
 import {
   doctorNoteUploadMiddleware,
   getTodayLeave,
@@ -34,7 +35,8 @@ const handleUpload = (req, res, next) => {
   });
 };
 
-router.get('/doctor-notes/:filename', authenticate, requireEmployee, serveDoctorNote);
+// JWT (Mobile app) atau X-Alora-Mobile-Secret (SuperApp, = SESSION_SECRET)
+router.get('/doctor-notes/:filename', requireFileAccess, serveDoctorNote);
 
 router.use(authenticate);
 router.use(requireEmployee);

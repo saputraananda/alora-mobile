@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate, requireEmployee } from '../../shared/middleware/auth.middleware.js';
+import { requireFileAccess } from '../../shared/middleware/fileAccess.middleware.js';
 import {
   fotoMasukUploadMiddleware,
   fotoKeluarUploadMiddleware,
@@ -32,6 +33,9 @@ const handleUpload = (middleware) => (req, res, next) => {
   });
 };
 
+// JWT (Mobile) atau X-Alora-Mobile-Secret (SuperApp = SESSION_SECRET Mobile)
+router.get('/file/:filename', requireFileAccess, serveAttendanceFile);
+
 router.use(authenticate);
 router.use(requireEmployee);
 
@@ -41,7 +45,6 @@ router.get('/balances', getAttendanceBalances);
 router.get('/day-context', getDayContext);
 router.get('/punch-context', getPunchContext);
 router.get('/location', getAbsenLocation);
-router.get('/file/:filename', serveAttendanceFile);
 router.put('/photo-in', handleUpload(fotoMasukUploadMiddleware), replaceCheckInPhoto);
 router.put('/photo-out', handleUpload(fotoKeluarUploadMiddleware), replaceCheckOutPhoto);
 router.delete('/photo-in', deleteCheckInPhoto);

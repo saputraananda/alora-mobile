@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate, requireEmployee } from '../../shared/middleware/auth.middleware.js';
+import { requireFileAccess } from '../../shared/middleware/fileAccess.middleware.js';
 import {
   sessionFotoMasukMiddleware,
   sessionFotoKeluarMiddleware,
@@ -26,7 +27,7 @@ const handleUpload = (middleware) => (req, res, next) => {
   });
 };
 
-router.get('/file/:filename', serveSessionFile);
+router.get('/file/:filename', requireFileAccess, serveSessionFile);
 
 router.use(authenticate);
 router.use(requireEmployee);
