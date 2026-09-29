@@ -29,3 +29,17 @@ export function requireFileAccess(req, res, next) {
 
   return res.status(401).json({ message: 'Akses file ditolak' });
 }
+
+/**
+ * Server-to-server only (SuperApp): header X-Alora-Mobile-Secret === SESSION_SECRET.
+ */
+export function requireAloraMobileSecret(req, res, next) {
+  const expected = (process.env.SESSION_SECRET || '').trim();
+  const provided = String(req.headers['x-alora-mobile-secret'] || '').trim();
+
+  if (expected && provided && provided === expected) {
+    return next();
+  }
+
+  return res.status(401).json({ message: 'Akses file ditolak' });
+}

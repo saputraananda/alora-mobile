@@ -1,9 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { aloraMobilePool, mainPool } from '../../db/pool.js';
-import { getBaseUploadDir } from '../../shared/upload.js';
+import { ensureUploadFolder } from '../../shared/upload.js';
 
-const PAYSLIP_DIR = path.join(getBaseUploadDir(), 'payslip');
 const INACTIVE_MESSAGE = 'Slip gaji hanya tersedia untuk karyawan aktif';
 
 async function isActiveEmployee(employeeId) {
@@ -51,7 +50,7 @@ export const downloadMyPayslip = async (req, res) => {
     if (!row) {
       return res.status(404).json({ message: 'Slip gaji tidak ditemukan' });
     }
-    const absPath = path.join(PAYSLIP_DIR, path.basename(String(row.file_path || '')));
+    const absPath = path.join(ensureUploadFolder('payslip'), path.basename(String(row.file_path || '')));
     if (!fs.existsSync(absPath)) {
       return res.status(404).json({ message: 'File slip gaji tidak ditemukan' });
     }
