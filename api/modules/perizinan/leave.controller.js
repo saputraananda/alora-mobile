@@ -27,6 +27,7 @@ import {
   parseFundingSources,
   resolveIzinFundingForSubmit,
   resolveLeaveTimes,
+  sumFullDayHoursInRange,
 } from './utils/leaveTimeRules.js';
 import { todayDateStringJakarta, toDateOnlyJakarta } from '../../shared/utils/workScheduleRules.js';
 
@@ -259,9 +260,25 @@ export const getWorkHours = async (req, res) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     return res.status(422).json({ message: 'Parameter date wajib (YYYY-MM-DD)' });
   }
+  const endDateStr = String(req.query.end_date || '').slice(0, 10) || dateStr;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDateStr)) {
+    return res.status(422).json({ message: 'Parameter end_date harus YYYY-MM-DD' });
+  }
+  if (endDateStr < dateStr) {
+    return res.status(422).json({ message: 'end_date tidak boleh sebelum date' });
+  }
   try {
-    const hours = await getDefaultWorkHoursForDate(dateStr);
-    return res.json(hours);
+    if (endDateStr === dateStr) {
+      const hours = await getDefaultWorkHoursForDate(dateStr);
+      return res.json(hours);
+    }
+    const { workDays, totalHours } = await sumFullDayHoursInRange(dateStr, endDateStr);
+    return res.json({
+      start_time: null,
+      end_time: null,
+      work_hours: totalHours,
+      work_days: workDays.length,
+    });
   } catch (error) {
     const status = error.statusCode || 500;
     return res.status(status).json({ message: error.message || 'Gagal mengambil jam kerja' });

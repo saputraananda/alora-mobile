@@ -17,11 +17,12 @@ import {
   validateTodoItems,
 } from './utils/attendanceSessionRules.js';
 import { appendOvertimeLedger } from '../perizinan/utils/ledgerService.js';
+import {
+  OUTSIDE_LOCATION_LABEL,
+  findNearestLocation,
+  getAbsenLocations,
+} from './utils/absenLocations.js';
 
-const HO_LOCATION_CODE = 'HO-ALR';
-const ABSEN_RADIUS_KM = 2;
-const INSIDE_LOCATION_LABEL = 'HO Alora';
-const OUTSIDE_LOCATION_LABEL = 'Lokasi diluar jangkauan';
 const SESSION_BASE = path.join(getBaseUploadDir(), 'attendance-sessions');
 
 if (!fs.existsSync(SESSION_BASE)) fs.mkdirSync(SESSION_BASE, { recursive: true });
@@ -57,30 +58,6 @@ function parseCoordinate(value) {
   return Number.isFinite(num) ? num : null;
 }
 
-function toRadians(value) {
-  return (value * Math.PI) / 180;
-}
-
-function distanceKm(lat1, lng1, lat2, lng2) {
-  const earthRadiusKm = 6371;
-  const dLat = toRadians(lat2 - lat1);
-  const dLng = toRadians(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
-      Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return earthRadiusKm * c;
-}
-
-async function getHoLocation() {
-  const [[row]] = await aloraMobilePool.query(
-    `SELECT id, latitude, longitude FROM mst_location_absen WHERE location_id = ? LIMIT 1`,
-    [HO_LOCATION_CODE]
-  );
-  return row || null;
-}
-
 async function resolvePunchLocation(latitude, longitude) {
   const lat = parseCoordinate(latitude);
   const lng = parseCoordinate(longitude);
@@ -89,15 +66,13 @@ async function resolvePunchLocation(latitude, longitude) {
     error.statusCode = 400;
     throw error;
   }
-  const office = await getHoLocation();
-  let insideRadius = false;
-  let locationName = OUTSIDE_LOCATION_LABEL;
-  if (office) {
-    const km = distanceKm(lat, lng, Number(office.latitude), Number(office.longitude));
-    insideRadius = km <= ABSEN_RADIUS_KM;
-    locationName = insideRadius ? INSIDE_LOCATION_LABEL : OUTSIDE_LOCATION_LABEL;
-  }
-  return { lat, lng, locationName, insideRadius };
+  const match = findNearestLocation(lat, lng, await getAbsenLocations());
+  return {
+    lat,
+    lng,
+    locationName: match ? match.location.display_name : OUTSIDE_LOCATION_LABEL,
+    insideRadius: Boolean(match),
+  };
 }
 
 async function compressToJpg(buffer) {

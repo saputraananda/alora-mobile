@@ -22,6 +22,8 @@ import AttendanceIntentModal from '../components/AttendanceIntentModal.jsx';
 import AttendanceModeRequestPanel from '../components/AttendanceModeRequestPanel.jsx';
 import {
   DEFAULT_ABSEN_RADIUS_KM,
+  INSIDE_LOCATION_LABEL,
+  UNRECORDED_LOCATION_LABEL,
   resolveAttendanceLocationLabel,
 } from '../../../utils/attendanceLocation.js';
 import { fetchAttendancePhotoBlob } from '../../../utils/attendancePhoto.js';
@@ -105,15 +107,30 @@ export default function Absensi() {
     const loadOffice = async () => {
       try {
         const { data } = await api.get('/attendance/location');
-        if (
+        let locations = [];
+        if (Array.isArray(data?.locations)) {
+          locations = data.locations
+            .map((loc) => ({
+              location_name: loc.location_name,
+              latitude: Number(loc.latitude),
+              longitude: Number(loc.longitude),
+            }))
+            .filter((loc) => Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude));
+        } else if (
           data &&
           Number.isFinite(Number(data.latitude)) &&
           Number.isFinite(Number(data.longitude))
         ) {
-          setAbsenOffice({
+          locations = [{
+            location_name: INSIDE_LOCATION_LABEL,
             latitude: Number(data.latitude),
             longitude: Number(data.longitude),
+          }];
+        }
+        if (locations.length > 0) {
+          setAbsenOffice({
             radius_km: Number(data.radius_km) || DEFAULT_ABSEN_RADIUS_KM,
+            locations,
           });
         } else {
           setAbsenOffice(null);
@@ -241,8 +258,7 @@ export default function Absensi() {
       return resolveAttendanceLocationLabel(
         lat,
         lng,
-        absenOffice.latitude,
-        absenOffice.longitude,
+        absenOffice.locations,
         absenOffice.radius_km ?? DEFAULT_ABSEN_RADIUS_KM
       );
     },
@@ -517,10 +533,10 @@ export default function Absensi() {
   };
 
   const masukLocationText = selectedRecord?.clockIn
-    ? (selectedRecord.clockInLocationName || 'Lokasi belum tercatat')
+    ? (selectedRecord.clockInLocationName || UNRECORDED_LOCATION_LABEL)
     : (selectedIsToday && liveLocationLabel ? liveLocationLabel : '');
   const keluarLocationText = selectedRecord?.clockOut
-    ? (selectedRecord.clockOutLocationName || 'Lokasi belum tercatat')
+    ? (selectedRecord.clockOutLocationName || UNRECORDED_LOCATION_LABEL)
     : (selectedIsToday && selectedRecord?.clockIn && liveLocationLabel ? liveLocationLabel : '');
 
   return (

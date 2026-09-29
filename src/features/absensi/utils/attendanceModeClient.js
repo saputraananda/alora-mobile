@@ -25,6 +25,8 @@ export function formatModeLocationLabel({ attendanceMode, punchLocationContextIn
   return 'Harian';
 }
 
-export function formatLocationDetectedLabel(punchLocationContext) {
-  return punchLocationContext === 'office' ? 'HO Alora (Kantor)' : 'Luar kantor (Remote)';
+export function formatLocationDetectedLabel(punchLocationContext, locationName) {
+  return punchLocationContext === 'office'
+    ? `${locationName || 'HO Alora'} (Kantor)`
+    : 'Luar kantor (Remote)';
 }

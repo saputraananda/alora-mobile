@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import { aloraMobilePool } from '../../db/pool.js';
 import { getBaseUploadDir } from '../../shared/upload.js';
 import {
-  computeLateMinutesFromClockIn,
+  computeLateInfoFromClockIn,
   getLateToleranceDateTime,
   todayDateStringJakarta,
   toDateOnlyJakarta,
@@ -30,11 +30,13 @@ import {
   applyWodLedgerFromAttendance,
   getApprovedRequestForDate,
 } from './attendanceModeRequest.controller.js';
-
-const HO_LOCATION_CODE = 'HO-ALR';
-const ABSEN_RADIUS_KM = 2;
-const INSIDE_LOCATION_LABEL = 'HO Alora';
-const OUTSIDE_LOCATION_LABEL = 'Lokasi diluar jangkauan';
+import {
+  ABSEN_RADIUS_KM,
+  HO_LOCATION_CODE,
+  OUTSIDE_LOCATION_LABEL,
+  findNearestLocation,
+  getAbsenLocations,
+} from './utils/absenLocations.js';
 
 function getAttendanceBase() {
   return path.join(getBaseUploadDir(), 'attendance');
@@ -94,22 +96,6 @@ function parseCoordinate(value) {
   return Number.isFinite(num) ? num : null;
 }
 
-function toRadians(value) {
-  return (value * Math.PI) / 180;
-}
-
-function distanceKm(lat1, lng1, lat2, lng2) {
-  const earthRadiusKm = 6371;
-  const dLat = toRadians(lat2 - lat1);
-  const dLng = toRadians(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
-      Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return earthRadiusKm * c;
-}
-
 function serializeAttendance(row) {
   if (!row) return null;
   let todoItems = row.todo_items;
@@ -131,17 +117,6 @@ function serializeAttendance(row) {
     approval_status_label: approvalStatusLabel(row.approval_status),
     approval_pending: row.approval_status === 'Pending_Supervisor',
   };
-}
-
-async function getHoLocation() {
-  const [[row]] = await aloraMobilePool.query(
-    `SELECT id, location_id, location_name, latitude, longitude
-     FROM mst_location_absen
-     WHERE location_id = ?
-     LIMIT 1`,
-    [HO_LOCATION_CODE]
-  );
-  return row || null;
 }
 
 async function assertNotLockedByApprovedFullDayLeave(employeeId) {
@@ -172,26 +147,21 @@ async function resolvePunchLocation(latitude, longitude) {
     throw error;
   }
 
-  const office = await getHoLocation();
-  if (!office) {
-    const error = new Error('Lokasi absensi HO-ALR belum tersedia');
+  const locations = await getAbsenLocations();
+  if (locations.length === 0) {
+    const error = new Error('Lokasi absensi belum tersedia');
     error.statusCode = 500;
     throw error;
   }
 
-  const officeLat = Number(office.latitude);
-  const officeLng = Number(office.longitude);
-  if (!Number.isFinite(officeLat) || !Number.isFinite(officeLng)) {
-    const error = new Error('Koordinat Head Office Alora tidak valid');
-    error.statusCode = 500;
-    throw error;
-  }
-
-  const km = distanceKm(lat, lng, officeLat, officeLng);
-  const insideRadius = km <= ABSEN_RADIUS_KM;
-  const locationName = insideRadius ? INSIDE_LOCATION_LABEL : OUTSIDE_LOCATION_LABEL;
-
-  return { office, lat, lng, locationName, insideRadius };
+  const match = findNearestLocation(lat, lng, locations);
+  return {
+    office: match?.location || null,
+    lat,
+    lng,
+    locationName: match ? match.location.display_name : OUTSIDE_LOCATION_LABEL,
+    insideRadius: Boolean(match),
+  };
 }
 
 function parseLateFields(body) {
@@ -206,10 +176,10 @@ function parseLateFields(body) {
 async function validateAndBuildLateFields(today, lateReason, lateCategory) {
   const tolerance = await getLateToleranceDateTime(today);
   const now = new Date();
-  const lateMinutes = computeLateMinutesFromClockIn(now, today, tolerance);
+  const { isLate, lateMinutes } = computeLateInfoFromClockIn(now, today, tolerance);
 
-  if (lateMinutes <= 0) {
-    return { lateMinutes: 0, lateCategory: null, lateReason: null, lateStatus: null };
+  if (!isLate) {
+    return { lateMinutes: null, lateCategory: null, lateReason: null, lateStatus: null };
   }
 
   if (lateCategory !== 'planned' && lateCategory !== 'unexpected') {
@@ -356,14 +326,17 @@ export const getPunchContext = async (req, res) => {
     const { holiday } = await getWorkScheduleForDate(today);
 
     let insideRadius = null;
+    let detectedLocationName = null;
     const lat = parseCoordinate(req.query.latitude);
     const lng = parseCoordinate(req.query.longitude);
     if (lat != null && lng != null) {
       try {
         const resolved = await resolvePunchLocation(lat, lng);
         insideRadius = resolved.insideRadius;
+        detectedLocationName = resolved.locationName;
       } catch {
         insideRadius = false;
+        detectedLocationName = null;
       }
     }
 
@@ -391,15 +364,16 @@ export const getPunchContext = async (req, res) => {
     }
 
     const tolerance = await getLateToleranceDateTime(today);
-    const lateMinutes = offDay || approvedModeRequest
-      ? 0
-      : computeLateMinutesFromClockIn(new Date(), today, tolerance);
+    const lateInfo = offDay || approvedModeRequest
+      ? { isLate: false, lateMinutes: 0 }
+      : computeLateInfoFromClockIn(new Date(), today, tolerance);
 
     return res.json({
       date: today,
       is_off_day: offDay,
       holiday_name: holiday?.name || null,
       inside_radius: insideRadius,
+      location_name: detectedLocationName,
       punch_location_context: insideRadius != null ? derivePunchLocationContext(insideRadius) : null,
       suggested_mode: approvedModeRequest
         ? approvedModeRequest.request_type
@@ -409,7 +383,7 @@ export const getPunchContext = async (req, res) => {
       off_day_message: offDay && !approvedModeRequest
         ? 'Hari ini libur. Ajukan WOD dulu di tab WOD; setelah disetujui baru bisa absen.'
         : (offDay ? OFF_DAY_MESSAGE : null),
-      is_late: lateMinutes > 0,
+      is_late: lateInfo.isLate,
       late_tolerance_iso: tolerance.toISOString(),
     });
   } catch (error) {
@@ -469,16 +443,24 @@ export const getDayContext = async (req, res) => {
 
 export const getAbsenLocation = async (req, res) => {
   try {
-    const office = await getHoLocation();
-    if (!office) {
-      return res.status(500).json({ message: 'Lokasi absensi HO-ALR belum tersedia' });
+    const locations = await getAbsenLocations();
+    if (locations.length === 0) {
+      return res.status(500).json({ message: 'Lokasi absensi belum tersedia' });
     }
+    const ho = locations.find((l) => l.location_id === HO_LOCATION_CODE) || locations[0];
     return res.json({
-      location_id: office.location_id,
-      location_name: office.location_name,
-      latitude: Number(office.latitude),
-      longitude: Number(office.longitude),
+      location_id: ho.location_id,
+      location_name: ho.location_name,
+      latitude: ho.latitude,
+      longitude: ho.longitude,
       radius_km: ABSEN_RADIUS_KM,
+      locations: locations.map(({ id, location_id, display_name, latitude, longitude }) => ({
+        id,
+        location_id,
+        location_name: display_name,
+        latitude,
+        longitude,
+      })),
     });
   } catch (error) {
     console.error('[attendance] getAbsenLocation', error);
@@ -548,7 +530,7 @@ export const checkInAttendance = async (req, res) => {
     }
 
     const { lateReason, lateCategory } = parseLateFields(req.body);
-    let lateFields = { lateMinutes: 0, lateCategory: null, lateReason: null, lateStatus: null };
+    let lateFields = { lateMinutes: null, lateCategory: null, lateReason: null, lateStatus: null };
     if (attendanceMode === ATTENDANCE_MODES.REGULAR) {
       lateFields = await validateAndBuildLateFields(today, lateReason, lateCategory);
     }
@@ -576,7 +558,7 @@ export const checkInAttendance = async (req, res) => {
       employeeId, today, attendanceMode, modeRequestId, saved.path, lat, lng, locationName, locationAbsenId,
       insideRadius ? 1 : 0, punchContextIn,
       (attendanceMode === ATTENDANCE_MODES.WFA || attendanceMode === ATTENDANCE_MODES.WOD) ? modeReason : null,
-      lateFields.lateCategory, lateFields.lateReason, lateFields.lateMinutes || null, lateFields.lateStatus,
+      lateFields.lateCategory, lateFields.lateReason, lateFields.lateMinutes, lateFields.lateStatus,
     ];
 
     let attendanceId;
@@ -611,7 +593,7 @@ export const checkInAttendance = async (req, res) => {
           attendanceMode, modeRequestId, saved.path, lat, lng, locationName, locationAbsenId, insideRadius ? 1 : 0,
           punchContextIn,
           (attendanceMode === ATTENDANCE_MODES.WFA || attendanceMode === ATTENDANCE_MODES.WOD) ? modeReason : null,
-          lateFields.lateCategory, lateFields.lateReason, lateFields.lateMinutes || null, lateFields.lateStatus,
+          lateFields.lateCategory, lateFields.lateReason, lateFields.lateMinutes, lateFields.lateStatus,
           existing.id,
         ]
       );

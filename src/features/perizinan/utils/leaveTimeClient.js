@@ -1,6 +1,3 @@
-export const RO_FULL_DAY_MIN_HOURS_WEEKDAY = 8;
-export const RO_FULL_DAY_MIN_HOURS_SATURDAY = 6;
-
 export function formatTimeHHmm(timeVal) {
   if (!timeVal) return null;
   const str = String(timeVal);
@@ -25,56 +22,16 @@ function jakartaWeekdayClient(dateStr) {
   return d.getUTCDay();
 }
 
-function addDaysClient(dateStr, days) {
-  const d = new Date(`${String(dateStr).slice(0, 10)}T12:00:00+07:00`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
+export function isSaturdayClient(dateStr) {
+  return jakartaWeekdayClient(dateStr) === 6;
 }
 
-/** Client approx: skip Sunday only; holidays validated server-side. */
-export function listApproxWorkDaysClient(startDate, endDate) {
-  const start = String(startDate || '').slice(0, 10);
-  const end = String(endDate || start).slice(0, 10);
-  if (!start || !end || start > end) return [];
-
-  const days = [];
-  for (let d = start; d <= end; d = addDaysClient(d, 1)) {
-    if (jakartaWeekdayClient(d) !== 0) days.push(d);
-  }
-  return days;
-}
-
-export function getRoFullDayMinHoursClient(dateStr) {
-  const dow = jakartaWeekdayClient(dateStr);
-  if (dow === 6) return RO_FULL_DAY_MIN_HOURS_SATURDAY;
-  return RO_FULL_DAY_MIN_HOURS_WEEKDAY;
-}
-
-export function sumRoFullDayMinHoursClient(startDate, endDate) {
-  const days = listApproxWorkDaysClient(startDate, endDate || startDate);
-  return days.reduce((sum, d) => sum + getRoFullDayMinHoursClient(d), 0);
-}
-
-function approxWorkHoursForDateClient(dateStr) {
-  const dow = jakartaWeekdayClient(dateStr);
-  if (dow === 0) return 0;
-  if (dow === 6) return computeLeaveDurationHoursClient('08:00', '14:00');
-  return computeLeaveDurationHoursClient('08:00', '17:00');
-}
-
-export function sumApproxFullDayHoursClient(startDate, endDate) {
-  const days = listApproxWorkDaysClient(startDate, endDate || startDate);
-  const total = days.reduce((sum, d) => sum + approxWorkHoursForDateClient(d), 0);
-  return Math.round(total * 100) / 100;
-}
-
-export function canUseRoForLeave({ durationType, startDate, endDate, roBalance }) {
+export function canUseRoForLeave({ durationType, roBalance, minHours }) {
   const balance = Math.max(0, Number(roBalance) || 0);
   if (balance <= 0) return false;
-  const isFullDay = durationType === 'full_day';
-  if (!isFullDay) return true;
-  const minHours = sumRoFullDayMinHoursClient(startDate, endDate || startDate);
-  return minHours > 0 && balance >= minHours;
+  if (durationType !== 'full_day') return true;
+  if (minHours == null) return true;
+  return balance >= Number(minHours);
 }
 
 export function computeIzinFundingClient({

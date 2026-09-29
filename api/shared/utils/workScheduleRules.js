@@ -1,6 +1,8 @@
 import { aloraMobilePool } from '../../db/pool.js';
 
 const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
+/** late_tolerance_time is the last on-time minute; late starts one minute after it. */
+const LATE_GRACE_MS = 60 * 1000;
 
 export function jakartaWeekday(dateStr) {
   const d = new Date(`${dateStr}T12:00:00+07:00`);
@@ -85,18 +87,19 @@ export async function getLateToleranceDateTime(dateStr) {
   return new Date(`${dateStr}T${pad(h)}:${pad(m)}:00+07:00`);
 }
 
-export function computeLateMinutesFromClockIn(clockInDate, dateStr, toleranceDate) {
-  if (!clockInDate || Number.isNaN(clockInDate.getTime())) return 0;
+export function computeLateInfoFromClockIn(clockInDate, dateStr, toleranceDate) {
+  if (!clockInDate || Number.isNaN(clockInDate.getTime())) return { isLate: false, lateMinutes: 0 };
   const tol = toleranceDate || new Date(`${dateStr}T08:30:00+07:00`);
-  const diffMs = clockInDate.getTime() - tol.getTime();
-  if (diffMs <= 0) return 0;
-  return Math.ceil(diffMs / 60000);
+  const lateStartMs = tol.getTime() + LATE_GRACE_MS;
+  const diffMs = clockInDate.getTime() - lateStartMs;
+  if (diffMs < 0) return { isLate: false, lateMinutes: 0 };
+  return { isLate: true, lateMinutes: Math.floor(diffMs / 60000) };
 }
 
-export async function computeLateMinutes(clockIn, dateStr) {
+export async function computeLateInfo(clockIn, dateStr) {
   const tolerance = await getLateToleranceDateTime(dateStr);
   const clockDate = clockIn instanceof Date ? clockIn : new Date(clockIn);
-  return computeLateMinutesFromClockIn(clockDate, dateStr, tolerance);
+  return computeLateInfoFromClockIn(clockDate, dateStr, tolerance);
 }
 
 export function buildPeriodRange(month, year) {

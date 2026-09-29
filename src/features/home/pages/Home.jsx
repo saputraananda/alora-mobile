@@ -234,6 +234,8 @@ export default function Home() {
       navigate('/perizinan');
     } else if (item.id === 'lemburro') {
       navigate('/lembur-ro');
+    } else if (item.id === 'slipgaji') {
+      navigate('/slip-gaji');
     } else {
       openMenuModal(item.title, item.modalDesc);
     }

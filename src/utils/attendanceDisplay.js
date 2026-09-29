@@ -1,6 +1,6 @@
 import {
-  INSIDE_LOCATION_LABEL,
   OUTSIDE_LOCATION_LABEL,
+  UNRECORDED_LOCATION_LABEL,
 } from './attendanceLocation.js';
 
 export const DAYS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
@@ -66,7 +66,7 @@ export function mapItemToRecord(item) {
 }
 
 export function locationLabelClass(label) {
-  if (label === INSIDE_LOCATION_LABEL) return 'text-[11px] text-emerald-700 font-bold mt-1 block';
+  if (!label || label === UNRECORDED_LOCATION_LABEL) return 'text-[11px] text-slate-400 mt-1 block';
   if (label === OUTSIDE_LOCATION_LABEL) return 'text-[11px] text-amber-700 font-bold mt-1 block';
-  return 'text-[11px] text-slate-400 mt-1 block';
+  return 'text-[11px] text-emerald-700 font-bold mt-1 block';
 }

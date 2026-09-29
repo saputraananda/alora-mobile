@@ -12,6 +12,7 @@ import lemburRoRoutes from './modules/lembur-ro/lemburRo.routes.js';
 import attendanceSessionRoutes from './modules/absensi/attendanceSession.routes.js';
 import attendanceModeRequestRoutes from './modules/absensi/attendanceModeRequest.routes.js';
 import approvalsRoutes from './modules/approvals/approvals.routes.js';
+import payslipRoutes from './modules/slip-gaji/payslip.routes.js';
 
 dotenv.config();
 
@@ -33,6 +34,7 @@ app.use('/api/lembur-ro', lemburRoRoutes);
 app.use('/api/attendance-sessions', attendanceSessionRoutes);
 app.use('/api/attendance-mode-requests', attendanceModeRequestRoutes);
 app.use('/api/approvals', approvalsRoutes);
+app.use('/api/payslips', payslipRoutes);
 
 // Health check endpoint
 app.get('/api', (req, res) => {

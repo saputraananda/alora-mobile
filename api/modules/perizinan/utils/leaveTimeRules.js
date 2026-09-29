@@ -10,8 +10,14 @@ import { getOvertimeUsableBalance, getReplaceOffUsableBalance } from './ledgerSe
 const VALID_FUNDING_SOURCES = new Set(['replace_off', 'overtime', 'unpaid']);
 const VALID_PAID_SOURCES = new Set(['replace_off', 'overtime', 'unpaid']);
 
-export const RO_FULL_DAY_MIN_HOURS_WEEKDAY = 8;
-export const RO_FULL_DAY_MIN_HOURS_SATURDAY = 6;
+export const DEFAULT_WORK_HOURS_WEEKDAY = 8;
+export const DEFAULT_WORK_HOURS_SATURDAY = 5;
+
+function resolveWorkHoursValue(schedule, dateStr) {
+  const fromSchedule = Number(schedule?.work_hours);
+  if (Number.isFinite(fromSchedule) && fromSchedule > 0) return fromSchedule;
+  return jakartaWeekday(dateStr) === 6 ? DEFAULT_WORK_HOURS_SATURDAY : DEFAULT_WORK_HOURS_WEEKDAY;
+}
 
 export function formatTimeHHmm(timeVal) {
   if (!timeVal) return null;
@@ -61,6 +67,7 @@ export async function getDefaultWorkHoursForDate(dateStr) {
     return {
       start_time: formatTimeHHmm(schedule.start_time),
       end_time: formatTimeHHmm(schedule.end_time),
+      work_hours: resolveWorkHoursValue(schedule, dateStr),
     };
   }
 
@@ -71,9 +78,9 @@ export async function getDefaultWorkHoursForDate(dateStr) {
     throw error;
   }
   if (dow === 6) {
-    return { start_time: '08:00', end_time: '14:00' };
+    return { start_time: '08:00', end_time: '14:00', work_hours: DEFAULT_WORK_HOURS_SATURDAY };
   }
-  return { start_time: '08:00', end_time: '17:00' };
+  return { start_time: '08:00', end_time: '17:00', work_hours: DEFAULT_WORK_HOURS_WEEKDAY };
 }
 
 export function assertIzinSameDayRules(leaveType, durationType, startDate) {
@@ -86,10 +93,8 @@ export function assertIzinSameDayRules(leaveType, durationType, startDate) {
   }
 }
 
-export function getRoFullDayMinHours(dateStr) {
-  const dow = jakartaWeekday(dateStr);
-  if (dow === 6) return RO_FULL_DAY_MIN_HOURS_SATURDAY;
-  return RO_FULL_DAY_MIN_HOURS_WEEKDAY;
+export async function getRoFullDayMinHours(dateStr) {
+  return (await getDefaultWorkHoursForDate(dateStr)).work_hours;
 }
 
 export async function listWorkDaysInRange(startDate, endDate) {
@@ -115,8 +120,7 @@ export async function sumFullDayHoursInRange(startDate, endDate) {
   let total = 0;
   for (const d of workDays) {
     const hours = await getDefaultWorkHoursForDate(d);
-    const dayHours = computeLeaveDurationHours(hours.start_time, hours.end_time);
-    total += Number(dayHours) || 0;
+    total += Number(hours.work_hours) || 0;
   }
   return {
     workDays,
@@ -125,13 +129,7 @@ export async function sumFullDayHoursInRange(startDate, endDate) {
 }
 
 export async function sumRoFullDayMinHoursInRange(startDate, endDate) {
-  const workDays = await listWorkDaysInRange(startDate, endDate);
-  if (workDays.length === 0) {
-    const error = new Error('Rentang tidak mengandung hari kerja');
-    error.statusCode = 422;
-    throw error;
-  }
-  return workDays.reduce((sum, d) => sum + getRoFullDayMinHours(d), 0);
+  return (await sumFullDayHoursInRange(startDate, endDate)).totalHours;
 }
 
 export async function assertRoFundingAllowed({
@@ -184,7 +182,7 @@ export async function resolveLeaveTimes({
       return {
         start_time: hours.start_time,
         end_time: hours.end_time,
-        leave_duration_hours: computeLeaveDurationHours(hours.start_time, hours.end_time),
+        leave_duration_hours: hours.work_hours,
         duration_type: 'full_day',
       };
     }

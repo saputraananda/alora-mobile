@@ -1,5 +1,6 @@
 export const INSIDE_LOCATION_LABEL = 'HO Alora';
 export const OUTSIDE_LOCATION_LABEL = 'Lokasi diluar jangkauan';
+export const UNRECORDED_LOCATION_LABEL = 'Lokasi belum tercatat';
 export const DEFAULT_ABSEN_RADIUS_KM = 2;
 
 function toRadians(value) {
@@ -21,26 +22,35 @@ export function distanceKm(lat1, lng1, lat2, lng2) {
 export function resolveAttendanceLocationLabel(
   workerLat,
   workerLng,
-  officeLat,
-  officeLng,
+  locations,
   radiusKm = DEFAULT_ABSEN_RADIUS_KM
 ) {
   const lat = Number(workerLat);
   const lng = Number(workerLng);
-  const oLat = Number(officeLat);
-  const oLng = Number(officeLng);
   const radius = Number(radiusKm);
 
   if (
     !Number.isFinite(lat) ||
     !Number.isFinite(lng) ||
-    !Number.isFinite(oLat) ||
-    !Number.isFinite(oLng) ||
-    !Number.isFinite(radius)
+    !Number.isFinite(radius) ||
+    !Array.isArray(locations) ||
+    locations.length === 0
   ) {
     return null;
   }
 
-  const km = distanceKm(lat, lng, oLat, oLng);
-  return km <= radius ? INSIDE_LOCATION_LABEL : OUTSIDE_LOCATION_LABEL;
+  let match = null;
+  let matchKm = Infinity;
+  for (const location of locations) {
+    const oLat = Number(location.latitude);
+    const oLng = Number(location.longitude);
+    if (!Number.isFinite(oLat) || !Number.isFinite(oLng)) continue;
+    const km = distanceKm(lat, lng, oLat, oLng);
+    if (km <= radius && km < matchKm) {
+      match = location;
+      matchKm = km;
+    }
+  }
+
+  return match ? match.location_name : OUTSIDE_LOCATION_LABEL;
 }

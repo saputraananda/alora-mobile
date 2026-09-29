@@ -10,9 +10,8 @@ import {
   computeLeaveDurationHoursClient,
   formatTimeHHmm,
   isPartialDurationType,
+  isSaturdayClient,
   paidSourceFromFundingItem,
-  sumApproxFullDayHoursClient,
-  sumRoFullDayMinHoursClient,
   todayStrJakarta,
 } from '../utils/leaveTimeClient.js';
 import { getAuthToken } from '../../../utils/authSession.js';
@@ -353,38 +352,37 @@ export default function Perizinan() {
   }, [formOpen, leaveType]);
 
   useEffect(() => {
-    if (!formOpen || durationType !== 'full_day' || isPartialMode || isMultiDayRange) {
+    if (!formOpen || durationType !== 'full_day' || isPartialMode) {
       setWorkHoursPreview(null);
       return;
     }
-    api.get('/leave/work-hours', { params: { date: startDate } })
+    api.get('/leave/work-hours', { params: { date: startDate, end_date: endDate || startDate } })
       .then(({ data }) => setWorkHoursPreview(data))
       .catch(() => setWorkHoursPreview(null));
-  }, [formOpen, durationType, isPartialMode, isMultiDayRange, startDate]);
+  }, [formOpen, durationType, isPartialMode, startDate, endDate]);
 
   const previewDurationHours = useMemo(() => {
-    if (durationType === 'full_day' && isMultiDayRange) {
-      return sumApproxFullDayHoursClient(startDate, endDate);
-    }
-    if (durationType === 'full_day' && workHoursPreview) {
-      return computeLeaveDurationHoursClient(workHoursPreview.start_time, workHoursPreview.end_time);
+    if (durationType === 'full_day') {
+      return workHoursPreview ? Number(workHoursPreview.work_hours) || 0 : 0;
     }
     if (isPartialMode) {
       return computeLeaveDurationHoursClient(startTime, endTime);
     }
     return 0;
-  }, [durationType, isMultiDayRange, startDate, endDate, workHoursPreview, isPartialMode, startTime, endTime]);
+  }, [durationType, workHoursPreview, isPartialMode, startTime, endTime]);
 
+  const roFullDayMin = durationType === 'full_day' && workHoursPreview
+    ? Number(workHoursPreview.work_hours) || 0
+    : null;
   const roUsable = canUseRoForLeave({
     durationType,
-    startDate,
-    endDate,
     roBalance: fundingBalances?.replace_off_hours,
+    minHours: roFullDayMin,
   });
   const otUsable = Number(fundingBalances?.overtime_hours || 0) > 0;
-  const roFullDayMin = sumRoFullDayMinHoursClient(startDate, endDate);
   const roBalanceNum = Number(fundingBalances?.replace_off_hours || 0);
   const showRoGateHint = durationType === 'full_day'
+    && roFullDayMin != null
     && roBalanceNum > 0
     && roBalanceNum < roFullDayMin;
 
@@ -842,7 +840,7 @@ export default function Perizinan() {
 
               {(durationType === 'full_day' && isMultiDayRange && previewDurationHours > 0) && (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[12px] text-slate-600">
-                  Perkiraan {previewDurationHours} jam (hari kerja dalam rentang)
+                  Total {previewDurationHours} jam (hari kerja dalam rentang)
                 </div>
               )}
 
@@ -929,7 +927,7 @@ export default function Perizinan() {
                       Saldo RO minimal {roFullDayMin} jam
                       {isMultiDayRange
                         ? ' (jumlah hari kerja dalam rentang)'
-                        : ` (${roFullDayMin === 6 ? 'Sabtu' : 'Sen–Jum'})`}
+                        : ` (${isSaturdayClient(startDate) ? 'Sabtu' : 'Sen–Jum'})`}
                       {' '}untuk izin seharian. Saldo Anda: {roBalanceNum} jam.
                     </p>
                   )}

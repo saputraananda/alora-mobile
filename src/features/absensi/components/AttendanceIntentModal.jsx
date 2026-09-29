@@ -53,7 +53,7 @@ function AttendanceIntentForm({
 
   const needsLate = !lockedMode && !blockedOffDay && Boolean(punchContext.is_late);
   const locLabel = punchContext.punch_location_context
-    ? formatLocationDetectedLabel(punchContext.punch_location_context)
+    ? formatLocationDetectedLabel(punchContext.punch_location_context, punchContext.location_name)
     : '—';
 
   const handleSubmit = (e) => {
