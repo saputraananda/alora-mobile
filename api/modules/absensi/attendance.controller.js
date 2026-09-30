@@ -10,8 +10,8 @@ import {
   todayDateStringJakarta,
   toDateOnlyJakarta,
   getWorkScheduleForDate,
-  isOffDay,
 } from '../../shared/utils/workScheduleRules.js';
+import { isAttendanceOffDay, isSundayOpenForEmployee } from '../../shared/utils/attendanceDayRules.js';
 import { getOvertimeUsableBalance, getReplaceOffUsableBalance } from '../perizinan/utils/ledgerService.js';
 import { getEmployeeDayContext, getEmployeeMonthFinalStatuses } from './utils/attendanceStatusResolver.js';
 import {
@@ -322,7 +322,7 @@ export const getMonthAttendance = async (req, res) => {
 export const getPunchContext = async (req, res) => {
   const today = todayDateString();
   try {
-    const offDay = await isOffDay(today);
+    const offDay = await isAttendanceOffDay(req.employeeId, today);
     const { holiday } = await getWorkScheduleForDate(today);
 
     let insideRadius = null;
@@ -364,7 +364,7 @@ export const getPunchContext = async (req, res) => {
     }
 
     const tolerance = await getLateToleranceDateTime(today);
-    const lateInfo = offDay || approvedModeRequest
+    const lateInfo = offDay || approvedModeRequest || isSundayOpenForEmployee(req.employeeId, today)
       ? { isLate: false, lateMinutes: 0 }
       : computeLateInfoFromClockIn(new Date(), today, tolerance);
 
@@ -492,7 +492,7 @@ export const checkInAttendance = async (req, res) => {
 
     const attendanceModeRaw = String(req.body.attendance_mode || '').trim();
     const modeReasonRaw = String(req.body.mode_reason || '').trim();
-    const offDay = await isOffDay(today);
+    const offDay = await isAttendanceOffDay(employeeId, today);
     const approvedRequest = await getApprovedRequestForDate(employeeId, today);
 
     let attendanceMode = attendanceModeRaw;
@@ -531,7 +531,7 @@ export const checkInAttendance = async (req, res) => {
 
     const { lateReason, lateCategory } = parseLateFields(req.body);
     let lateFields = { lateMinutes: null, lateCategory: null, lateReason: null, lateStatus: null };
-    if (attendanceMode === ATTENDANCE_MODES.REGULAR) {
+    if (attendanceMode === ATTENDANCE_MODES.REGULAR && !isSundayOpenForEmployee(employeeId, today)) {
       lateFields = await validateAndBuildLateFields(today, lateReason, lateCategory);
     }
 

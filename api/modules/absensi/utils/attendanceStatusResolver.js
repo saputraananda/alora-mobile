@@ -1,5 +1,6 @@
 import { aloraMobilePool } from '../../../db/pool.js';
-import { isOffDay, toDateOnlyJakarta } from '../../../shared/utils/workScheduleRules.js';
+import { toDateOnlyJakarta } from '../../../shared/utils/workScheduleRules.js';
+import { isAttendanceOffDay } from '../../../shared/utils/attendanceDayRules.js';
 
 export const FINAL_STATUS_PRIORITY = [
   'CUTI',
@@ -163,7 +164,7 @@ export async function getEmployeeDayContext(employeeId, dateStr) {
     [employeeId, dateStr]
   );
 
-  const offDay = await isOffDay(dateStr);
+  const offDay = await isAttendanceOffDay(employeeId, dateStr);
   const finalStatus = resolveFinalStatus({
     date: dateStr,
     attendance,
