@@ -34,6 +34,8 @@ import {
   ABSEN_RADIUS_KM,
   HO_LOCATION_CODE,
   OUTSIDE_LOCATION_LABEL,
+  OUTSIDE_NORMAL_LABEL,
+  OUTSIDE_NOTE_MIN_LENGTH,
   findNearestLocation,
   getAbsenLocations,
 } from './utils/absenLocations.js';
@@ -138,7 +140,7 @@ async function assertNotLockedByApprovedFullDayLeave(employeeId) {
   }
 }
 
-async function resolvePunchLocation(latitude, longitude) {
+async function resolvePunchLocation(latitude, longitude, { officeOnly = false } = {}) {
   const lat = parseCoordinate(latitude);
   const lng = parseCoordinate(longitude);
   if (lat === null || lng === null) {
@@ -154,14 +156,28 @@ async function resolvePunchLocation(latitude, longitude) {
     throw error;
   }
 
-  const match = findNearestLocation(lat, lng, locations);
+  const candidates = officeOnly ? locations.filter((l) => l.is_office) : locations;
+  const match = findNearestLocation(lat, lng, candidates);
   return {
     office: match?.location || null,
     lat,
     lng,
-    locationName: match ? match.location.display_name : OUTSIDE_LOCATION_LABEL,
+    locationName: match
+      ? match.location.display_name
+      : (officeOnly ? OUTSIDE_NORMAL_LABEL : OUTSIDE_LOCATION_LABEL),
     insideRadius: Boolean(match),
   };
+}
+
+function parseOutsideNote(body, required) {
+  const note = String(body.outside_note || '').trim().slice(0, 1000);
+  if (!required) return null;
+  if (note.length < OUTSIDE_NOTE_MIN_LENGTH) {
+    const error = new Error('Absen di luar HO/IKM — catatan alasan wajib diisi minimal 5 karakter');
+    error.statusCode = 422;
+    throw error;
+  }
+  return note;
 }
 
 function parseLateFields(body) {
@@ -290,6 +306,7 @@ export const getMonthAttendance = async (req, res) => {
     const [rows] = await aloraMobilePool.query(
       `SELECT attendance_date, clock_in, clock_out, foto_masuk_path, foto_keluar_path,
               clock_in_location_name, clock_out_location_name,
+              clock_in_outside_note, clock_out_outside_note,
               late_category, late_reason, late_minutes, late_status,
               clock_in_inside_radius, clock_out_inside_radius,
               attendance_mode, punch_location_context_in, punch_location_context_out,
@@ -324,6 +341,8 @@ export const getPunchContext = async (req, res) => {
   try {
     const offDay = await isAttendanceOffDay(req.employeeId, today);
     const { holiday } = await getWorkScheduleForDate(today);
+    const approvedRequest = await getApprovedRequestForDate(req.employeeId, today);
+    const officeOnly = !offDay && !approvedRequest;
 
     let insideRadius = null;
     let detectedLocationName = null;
@@ -331,7 +350,7 @@ export const getPunchContext = async (req, res) => {
     const lng = parseCoordinate(req.query.longitude);
     if (lat != null && lng != null) {
       try {
-        const resolved = await resolvePunchLocation(lat, lng);
+        const resolved = await resolvePunchLocation(lat, lng, { officeOnly });
         insideRadius = resolved.insideRadius;
         detectedLocationName = resolved.locationName;
       } catch {
@@ -344,7 +363,6 @@ export const getPunchContext = async (req, res) => {
       ? resolveSuggestedMode({ isOffDay: offDay, insideRadius })
       : (offDay ? ATTENDANCE_MODES.WOD : ATTENDANCE_MODES.REGULAR);
 
-    const approvedRequest = await getApprovedRequestForDate(req.employeeId, today);
     const approvedModeRequest = approvedRequest
       ? {
           id: approvedRequest.id,
@@ -375,6 +393,7 @@ export const getPunchContext = async (req, res) => {
       inside_radius: insideRadius,
       location_name: detectedLocationName,
       punch_location_context: insideRadius != null ? derivePunchLocationContext(insideRadius) : null,
+      outside_note_required: officeOnly && insideRadius === false,
       suggested_mode: approvedModeRequest
         ? approvedModeRequest.request_type
         : (offDay ? ATTENDANCE_MODES.WOD : suggestedMode === ATTENDANCE_MODES.WFA ? ATTENDANCE_MODES.REGULAR : suggestedMode),
@@ -454,12 +473,13 @@ export const getAbsenLocation = async (req, res) => {
       latitude: ho.latitude,
       longitude: ho.longitude,
       radius_km: ABSEN_RADIUS_KM,
-      locations: locations.map(({ id, location_id, display_name, latitude, longitude }) => ({
+      locations: locations.map(({ id, location_id, display_name, latitude, longitude, is_office }) => ({
         id,
         location_id,
         location_name: display_name,
         latitude,
         longitude,
+        is_office,
       })),
     });
   } catch (error) {
@@ -535,10 +555,13 @@ export const checkInAttendance = async (req, res) => {
       lateFields = await validateAndBuildLateFields(today, lateReason, lateCategory);
     }
 
+    const isRegularPunch = attendanceMode === ATTENDANCE_MODES.REGULAR;
     const { office, lat, lng, locationName, insideRadius } = await resolvePunchLocation(
       req.body.latitude,
-      req.body.longitude
+      req.body.longitude,
+      { officeOnly: isRegularPunch }
     );
+    const outsideNote = parseOutsideNote(req.body, isRegularPunch && !insideRadius);
     const locationAbsenId = insideRadius ? office.id : null;
     const punchContextIn = derivePunchLocationContext(insideRadius);
     const existing = await getTodayRow(employeeId);
@@ -550,12 +573,12 @@ export const checkInAttendance = async (req, res) => {
     const saved = await savePhoto(employeeId, today, 'foto_masuk', req.file);
 
     const insertCols = `employee_id, attendance_date, attendance_mode, mode_request_id, clock_in, foto_masuk_path,
-            clock_in_latitude, clock_in_longitude, clock_in_location_name, location_absen_id,
+            clock_in_latitude, clock_in_longitude, clock_in_location_name, clock_in_outside_note, location_absen_id,
             clock_in_inside_radius, punch_location_context_in, mode_reason,
             late_category, late_reason, late_minutes, late_status, approval_status`;
-    const insertVals = `?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL`;
+    const insertVals = `?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL`;
     const params = [
-      employeeId, today, attendanceMode, modeRequestId, saved.path, lat, lng, locationName, locationAbsenId,
+      employeeId, today, attendanceMode, modeRequestId, saved.path, lat, lng, locationName, outsideNote, locationAbsenId,
       insideRadius ? 1 : 0, punchContextIn,
       (attendanceMode === ATTENDANCE_MODES.WFA || attendanceMode === ATTENDANCE_MODES.WOD) ? modeReason : null,
       lateFields.lateCategory, lateFields.lateReason, lateFields.lateMinutes, lateFields.lateStatus,
@@ -578,6 +601,7 @@ export const checkInAttendance = async (req, res) => {
              clock_in_latitude = ?,
              clock_in_longitude = ?,
              clock_in_location_name = ?,
+             clock_in_outside_note = ?,
              location_absen_id = ?,
              clock_in_inside_radius = ?,
              punch_location_context_in = ?,
@@ -590,7 +614,7 @@ export const checkInAttendance = async (req, res) => {
              updated_at = NOW()
          WHERE id = ?`,
         [
-          attendanceMode, modeRequestId, saved.path, lat, lng, locationName, locationAbsenId, insideRadius ? 1 : 0,
+          attendanceMode, modeRequestId, saved.path, lat, lng, locationName, outsideNote, locationAbsenId, insideRadius ? 1 : 0,
           punchContextIn,
           (attendanceMode === ATTENDANCE_MODES.WFA || attendanceMode === ATTENDANCE_MODES.WOD) ? modeReason : null,
           lateFields.lateCategory, lateFields.lateReason, lateFields.lateMinutes, lateFields.lateStatus,
@@ -635,10 +659,6 @@ export const checkOutAttendance = async (req, res) => {
       return res.status(422).json({ message: 'Foto keluar wajib dilampirkan' });
     }
 
-    const { lat, lng, locationName, insideRadius } = await resolvePunchLocation(
-      req.body.latitude,
-      req.body.longitude
-    );
     const existing = await getTodayRow(employeeId);
 
     if (!existing?.clock_in) {
@@ -647,6 +667,15 @@ export const checkOutAttendance = async (req, res) => {
     if (existing.clock_out) {
       return res.status(409).json({ message: 'Anda sudah melakukan absen keluar hari ini' });
     }
+
+    const mode = existing.attendance_mode || ATTENDANCE_MODES.REGULAR;
+    const isRegularPunch = mode === ATTENDANCE_MODES.REGULAR;
+    const { lat, lng, locationName, insideRadius } = await resolvePunchLocation(
+      req.body.latitude,
+      req.body.longitude,
+      { officeOnly: isRegularPunch }
+    );
+    const outsideNote = parseOutsideNote(req.body, isRegularPunch && !insideRadius);
 
     const saved = await savePhoto(employeeId, today, 'foto_keluar', req.file);
 
@@ -662,7 +691,6 @@ export const checkOutAttendance = async (req, res) => {
     }
 
     let todoJson = null;
-    const mode = existing.attendance_mode || ATTENDANCE_MODES.REGULAR;
     if (mode === ATTENDANCE_MODES.WOD) {
       const todoValidated = validateTodoItems(req.body.todo_items);
       if (todoValidated.error) {
@@ -685,6 +713,7 @@ export const checkOutAttendance = async (req, res) => {
            clock_out_latitude = ?,
            clock_out_longitude = ?,
            clock_out_location_name = ?,
+           clock_out_outside_note = ?,
            clock_out_inside_radius = ?,
            punch_location_context_out = ?,
            duration_hours = ?,
@@ -699,7 +728,7 @@ export const checkOutAttendance = async (req, res) => {
            updated_at = NOW()
        WHERE id = ?`,
       [
-        saved.path, lat, lng, locationName, insideRadius ? 1 : 0, punchContextOut,
+        saved.path, lat, lng, locationName, outsideNote, insideRadius ? 1 : 0, punchContextOut,
         duration.durationHours, todoJson, approvalStatus, existing.id,
       ]
     );
@@ -750,6 +779,7 @@ export const deleteCheckInPhoto = async (req, res) => {
            clock_in_latitude = NULL,
            clock_in_longitude = NULL,
            clock_in_location_name = NULL,
+           clock_in_outside_note = NULL,
            location_absen_id = NULL,
            clock_in_inside_radius = NULL,
            punch_location_context_in = NULL,
@@ -802,6 +832,7 @@ export const deleteCheckOutPhoto = async (req, res) => {
            clock_out_latitude = NULL,
            clock_out_longitude = NULL,
            clock_out_location_name = NULL,
+           clock_out_outside_note = NULL,
            clock_out_inside_radius = NULL,
            updated_at = NOW()
        WHERE id = ?`,

@@ -20,9 +20,11 @@ import LateCheckInModal from '../components/LateCheckInModal.jsx';
 import SessionTodoModal from '../components/SessionTodoModal.jsx';
 import AttendanceIntentModal from '../components/AttendanceIntentModal.jsx';
 import AttendanceModeRequestPanel from '../components/AttendanceModeRequestPanel.jsx';
+import OutsideNoteModal from '../components/OutsideNoteModal.jsx';
 import {
   DEFAULT_ABSEN_RADIUS_KM,
   INSIDE_LOCATION_LABEL,
+  OUTSIDE_NORMAL_LABEL,
   UNRECORDED_LOCATION_LABEL,
   resolveAttendanceLocationLabel,
 } from '../../../utils/attendanceLocation.js';
@@ -94,6 +96,8 @@ export default function Absensi() {
   const [punchContext, setPunchContext] = useState(null);
   const [intentError, setIntentError] = useState('');
   const [pendingLateFields, setPendingLateFields] = useState(null);
+  const [outsideNoteOpen, setOutsideNoteOpen] = useState(false);
+  const [outsideNoteError, setOutsideNoteError] = useState('');
   const [segment, setSegment] = useState('absensi'); // absensi | wfa | wod
 
   useEffect(() => {
@@ -114,6 +118,7 @@ export default function Absensi() {
               location_name: loc.location_name,
               latitude: Number(loc.latitude),
               longitude: Number(loc.longitude),
+              is_office: Boolean(loc.is_office),
             }))
             .filter((loc) => Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude));
         } else if (
@@ -252,6 +257,10 @@ export default function Absensi() {
     };
   }, [selectedRecord?.fotoMasukPath, selectedRecord?.fotoKeluarPath]);
 
+  const isRegularPunch = selectedRecord?.clockIn
+    ? (dayContext?.attendance?.attendance_mode || 'regular') === 'regular'
+    : !dayContext?.approved_mode_request;
+
   const resolveLocationLabel = useCallback(
     (lat, lng) => {
       if (!absenOffice) return null;
@@ -259,10 +268,11 @@ export default function Absensi() {
         lat,
         lng,
         absenOffice.locations,
-        absenOffice.radius_km ?? DEFAULT_ABSEN_RADIUS_KM
+        absenOffice.radius_km ?? DEFAULT_ABSEN_RADIUS_KM,
+        { officeOnly: isRegularPunch }
       );
     },
-    [absenOffice]
+    [absenOffice, isRegularPunch]
   );
 
   const clearPendingIn = () => {
@@ -300,7 +310,7 @@ export default function Absensi() {
     };
   }, []);
 
-  const submitPunch = async (action, lateFields = null, todoItems = null) => {
+  const submitPunch = async (action, lateFields = null, todoItems = null, outsideNote = null) => {
     const file = action === 'in' ? pendingInFile : pendingOutFile;
     const meta = action === 'in' ? pendingInMeta : pendingOutMeta;
     if (!file || meta?.latitude == null || meta?.longitude == null) {
@@ -324,9 +334,15 @@ export default function Absensi() {
       if (effectiveLate?.late_category) {
         formData.append('late_category', effectiveLate.late_category);
       }
+      if (effectiveLate?.outside_note) {
+        formData.append('outside_note', effectiveLate.outside_note);
+      }
     }
     if (action === 'out' && todoItems) {
       formData.append('todo_items', JSON.stringify(todoItems));
+    }
+    if (action === 'out' && outsideNote) {
+      formData.append('outside_note', outsideNote);
     }
 
     setActionLoading(true);
@@ -344,6 +360,8 @@ export default function Absensi() {
         await api.post('/attendance/check-out', formData);
         clearPendingOut();
         setSessionTodoTarget(null);
+        setOutsideNoteOpen(false);
+        setOutsideNoteError('');
       }
       await fetchMonth();
       await fetchDayContext();
@@ -357,6 +375,10 @@ export default function Absensi() {
         if (err.response?.status === 422 && /terlambat/i.test(msg)) {
           setPunchContext((prev) => (prev ? { ...prev, is_late: true } : prev));
         }
+      }
+      if (action === 'out' && err.response?.status === 422 && /catatan/i.test(msg)) {
+        setOutsideNoteError(msg);
+        setOutsideNoteOpen(true);
       }
       if (err.response?.status === 422 && action === 'in' && !intentModalOpen) {
         setLateModalError(msg);
@@ -393,13 +415,14 @@ export default function Absensi() {
     openIntentModal();
   };
 
-  const handleIntentConfirm = ({ attendance_mode, mode_reason, late_reason, late_category }) => {
+  const handleIntentConfirm = ({ attendance_mode, mode_reason, late_reason, late_category, outside_note }) => {
     submitPunch('in', {
       ...(pendingLateFields || {}),
       attendance_mode,
       mode_reason,
       ...(late_reason ? { late_reason } : {}),
       ...(late_category ? { late_category } : {}),
+      ...(outside_note ? { outside_note } : {}),
     });
   };
 
@@ -412,8 +435,15 @@ export default function Absensi() {
       setSessionTodoTarget('wod');
       return;
     }
+    if (isRegularPunch && pendingOutMeta?.locationName === OUTSIDE_NORMAL_LABEL) {
+      setOutsideNoteError('');
+      setOutsideNoteOpen(true);
+      return;
+    }
     submitPunch('out');
   };
+
+  const handleOutsideNoteSubmit = (note) => submitPunch('out', null, null, note);
 
   const handleLateModalSubmit = (fields) => {
     setPendingLateFields(fields);
@@ -750,7 +780,7 @@ export default function Absensi() {
                       <p className="text-[12px] font-bold text-red-600 text-center">{actionError}</p>
                     )}
                     <p className="text-[10px] text-slate-400 text-center font-medium">
-                      Foto + GPS wajib · lokasi dicatat untuk audit (tidak memblokir absen)
+                      Foto + GPS wajib · di luar HO/IKM wajib isi catatan
                     </p>
                     <p className="text-[10px] text-slate-400 text-center font-medium">
                       Ambil dari kamera, bukan dari galeri.
@@ -1068,6 +1098,19 @@ export default function Absensi() {
         onSubmit={handleSessionTodoSubmit}
         loading={actionLoading}
         error={actionError}
+      />
+
+      <OutsideNoteModal
+        open={outsideNoteOpen}
+        onClose={() => {
+          if (!actionLoading) {
+            setOutsideNoteOpen(false);
+            setOutsideNoteError('');
+          }
+        }}
+        onSubmit={handleOutsideNoteSubmit}
+        loading={actionLoading}
+        error={outsideNoteError}
       />
 
       <AttendanceIntentModal

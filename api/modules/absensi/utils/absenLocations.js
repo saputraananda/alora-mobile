@@ -4,6 +4,8 @@ export const ABSEN_RADIUS_KM = 2;
 export const HO_LOCATION_CODE = 'HO-ALR';
 export const HO_LOCATION_LABEL = 'HO Alora';
 export const OUTSIDE_LOCATION_LABEL = 'Lokasi diluar jangkauan';
+export const OUTSIDE_NORMAL_LABEL = 'Sedang di luar';
+export const OUTSIDE_NOTE_MIN_LENGTH = 5;
 
 function toRadians(value) {
   return (value * Math.PI) / 180;
@@ -28,7 +30,7 @@ export function displayLocationName(row) {
 
 export async function getAbsenLocations() {
   const [rows] = await aloraMobilePool.query(
-    `SELECT id, location_id, location_name, latitude, longitude
+    `SELECT id, location_id, location_name, latitude, longitude, is_office
      FROM mst_location_absen
      ORDER BY id`
   );
@@ -39,6 +41,7 @@ export async function getAbsenLocations() {
       location_name: row.location_name,
       latitude: Number(row.latitude),
       longitude: Number(row.longitude),
+      is_office: Number(row.is_office) === 1,
       display_name: displayLocationName(row),
     }))
     .filter((loc) => Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude));

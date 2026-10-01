@@ -1,5 +1,6 @@
 export const INSIDE_LOCATION_LABEL = 'HO Alora';
 export const OUTSIDE_LOCATION_LABEL = 'Lokasi diluar jangkauan';
+export const OUTSIDE_NORMAL_LABEL = 'Sedang di luar';
 export const UNRECORDED_LOCATION_LABEL = 'Lokasi belum tercatat';
 export const DEFAULT_ABSEN_RADIUS_KM = 2;
 
@@ -23,7 +24,8 @@ export function resolveAttendanceLocationLabel(
   workerLat,
   workerLng,
   locations,
-  radiusKm = DEFAULT_ABSEN_RADIUS_KM
+  radiusKm = DEFAULT_ABSEN_RADIUS_KM,
+  { officeOnly = false } = {}
 ) {
   const lat = Number(workerLat);
   const lng = Number(workerLng);
@@ -42,6 +44,7 @@ export function resolveAttendanceLocationLabel(
   let match = null;
   let matchKm = Infinity;
   for (const location of locations) {
+    if (officeOnly && !location.is_office) continue;
     const oLat = Number(location.latitude);
     const oLng = Number(location.longitude);
     if (!Number.isFinite(oLat) || !Number.isFinite(oLng)) continue;
@@ -52,5 +55,6 @@ export function resolveAttendanceLocationLabel(
     }
   }
 
-  return match ? match.location_name : OUTSIDE_LOCATION_LABEL;
+  if (match) return match.location_name;
+  return officeOnly ? OUTSIDE_NORMAL_LABEL : OUTSIDE_LOCATION_LABEL;
 }

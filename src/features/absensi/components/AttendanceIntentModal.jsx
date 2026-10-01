@@ -50,11 +50,15 @@ function AttendanceIntentForm({
 
   const [lateCategory, setLateCategory] = useState('');
   const [lateReason, setLateReason] = useState('');
+  const [outsideNote, setOutsideNote] = useState('');
 
   const needsLate = !lockedMode && !blockedOffDay && Boolean(punchContext.is_late);
-  const locLabel = punchContext.punch_location_context
-    ? formatLocationDetectedLabel(punchContext.punch_location_context, punchContext.location_name)
-    : '—';
+  const needsOutsideNote = !lockedMode && !blockedOffDay && Boolean(punchContext.outside_note_required);
+  const locLabel = needsOutsideNote
+    ? (punchContext.location_name || 'Sedang di luar')
+    : punchContext.punch_location_context
+      ? formatLocationDetectedLabel(punchContext.punch_location_context, punchContext.location_name)
+      : '—';
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -75,6 +79,7 @@ function AttendanceIntentForm({
           late_reason: lateReason.trim(),
         }
         : {}),
+      ...(needsOutsideNote ? { outside_note: outsideNote.trim() } : {}),
     });
   };
 
@@ -83,7 +88,8 @@ function AttendanceIntentForm({
     || (needsLate && (
       (lateCategory !== 'planned' && lateCategory !== 'unexpected')
       || lateReason.trim().length < 5
-    ));
+    ))
+    || (needsOutsideNote && outsideNote.trim().length < 5);
 
   const modeTitle = lockedMode === 'wod'
     ? 'WOD'
@@ -134,6 +140,32 @@ function AttendanceIntentForm({
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-[12px] text-slate-600">
           Lokasi terdeteksi: <span className="font-semibold text-slate-800">{locLabel}</span>
         </div>
+
+        {needsOutsideNote && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 space-y-3">
+            <div>
+              <div className="text-[12.5px] font-bold text-amber-900">Anda di luar HO/IKM</div>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                Tulis alasan sebelum absen masuk.
+              </p>
+            </div>
+            <div>
+              <label className="block text-[12px] font-semibold text-amber-900 mb-1.5">
+                Catatan
+              </label>
+              <textarea
+                value={outsideNote}
+                onChange={(e) => setOutsideNote(e.target.value)}
+                rows={3}
+                placeholder="Contoh: kunjungan ke RS Eka Cibubur"
+                className="w-full border border-amber-200 rounded-xl px-3 py-2.5 text-[13px] bg-white resize-none"
+              />
+              {outsideNote.trim().length > 0 && outsideNote.trim().length < 5 && (
+                <p className="mt-1 text-[11px] text-amber-700">Minimal 5 karakter</p>
+              )}
+            </div>
+          </div>
+        )}
 
         {needsLate && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 space-y-3">

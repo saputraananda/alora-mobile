@@ -1,5 +1,6 @@
 import {
   OUTSIDE_LOCATION_LABEL,
+  OUTSIDE_NORMAL_LABEL,
   UNRECORDED_LOCATION_LABEL,
 } from './attendanceLocation.js';
 
@@ -67,6 +68,6 @@ export function mapItemToRecord(item) {
 
 export function locationLabelClass(label) {
   if (!label || label === UNRECORDED_LOCATION_LABEL) return 'text-[11px] text-slate-400 mt-1 block';
-  if (label === OUTSIDE_LOCATION_LABEL) return 'text-[11px] text-amber-700 font-bold mt-1 block';
+  if (label === OUTSIDE_LOCATION_LABEL || label === OUTSIDE_NORMAL_LABEL) return 'text-[11px] text-amber-700 font-bold mt-1 block';
   return 'text-[11px] text-emerald-700 font-bold mt-1 block';
 }
