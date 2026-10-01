@@ -12,6 +12,8 @@ const VALID_PAID_SOURCES = new Set(['replace_off', 'overtime', 'unpaid']);
 
 export const DEFAULT_WORK_HOURS_WEEKDAY = 8;
 export const DEFAULT_WORK_HOURS_SATURDAY = 5;
+export const LEAVE_BREAK_START = '12:00';
+export const LEAVE_BREAK_END = '13:00';
 
 function resolveWorkHoursValue(schedule, dateStr) {
   const fromSchedule = Number(schedule?.work_hours);
@@ -39,20 +41,34 @@ export function isPartialDuration(durationType) {
   return n === 'partial';
 }
 
-export function computeLeaveDurationHours(startTime, endTime) {
-  const start = formatTimeHHmm(startTime);
-  const end = formatTimeHHmm(endTime);
-  if (!start || !end) return null;
-  const [sh, sm] = start.split(':').map(Number);
-  const [eh, em] = end.split(':').map(Number);
-  const startM = sh * 60 + sm;
-  const endM = eh * 60 + em;
+function toMinutes(timeVal) {
+  const hhmm = formatTimeHHmm(timeVal);
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+export function computeLeaveDurationHours(startTime, endTime, workStart = null, workEnd = null) {
+  const startM = toMinutes(startTime);
+  const endM = toMinutes(endTime);
+  if (startM == null || endM == null) return null;
   if (endM <= startM) {
     const error = new Error('Jam selesai harus setelah jam mulai');
     error.statusCode = 422;
     throw error;
   }
-  return Math.round(((endM - startM) / 60) * 100) / 100;
+
+  const wsM = toMinutes(workStart);
+  const weM = toMinutes(workEnd);
+  const effStart = wsM != null ? Math.max(startM, wsM) : startM;
+  const effEnd = weM != null ? Math.min(endM, weM) : endM;
+  if (effEnd <= effStart) return 0;
+
+  const breakOverlap = Math.max(
+    0,
+    Math.min(effEnd, toMinutes(LEAVE_BREAK_END)) - Math.max(effStart, toMinutes(LEAVE_BREAK_START))
+  );
+  return Math.round(((effEnd - effStart - breakOverlap) / 60) * 100) / 100;
 }
 
 export async function getDefaultWorkHoursForDate(dateStr) {
@@ -194,7 +210,13 @@ export async function resolveLeaveTimes({
       error.statusCode = 422;
       throw error;
     }
-    const durationHours = computeLeaveDurationHours(st, et);
+    const hours = await getDefaultWorkHoursForDate(startDate);
+    const durationHours = computeLeaveDurationHours(st, et, hours.start_time, hours.end_time);
+    if (!(durationHours > 0)) {
+      const error = new Error('Jam izin tidak mencakup jam kerja (di luar jam kerja atau hanya jam istirahat).');
+      error.statusCode = 422;
+      throw error;
+    }
     return {
       start_time: st,
       end_time: et,

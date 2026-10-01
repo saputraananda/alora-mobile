@@ -347,7 +347,7 @@ export default function Perizinan() {
   }, [formOpen, leaveType]);
 
   useEffect(() => {
-    if (!formOpen || durationType !== 'full_day' || isPartialMode) {
+    if (!formOpen) {
       setWorkHoursPreview(null);
       return;
     }
@@ -361,7 +361,12 @@ export default function Perizinan() {
       return workHoursPreview ? Number(workHoursPreview.work_hours) || 0 : 0;
     }
     if (isPartialMode) {
-      return computeLeaveDurationHoursClient(startTime, endTime);
+      return computeLeaveDurationHoursClient(
+        startTime,
+        endTime,
+        workHoursPreview?.start_time,
+        workHoursPreview?.end_time
+      );
     }
     return 0;
   }, [durationType, workHoursPreview, isPartialMode, startTime, endTime]);

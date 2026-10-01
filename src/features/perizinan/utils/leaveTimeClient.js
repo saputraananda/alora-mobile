@@ -6,15 +6,32 @@ export function formatTimeHHmm(timeVal) {
   return match ? `${match[1]}:${match[2]}` : null;
 }
 
-export function computeLeaveDurationHoursClient(startTime, endTime) {
-  const start = formatTimeHHmm(startTime);
-  const end = formatTimeHHmm(endTime);
-  if (!start || !end) return 0;
-  const [sh, sm] = start.split(':').map(Number);
-  const [eh, em] = end.split(':').map(Number);
-  const diff = (eh * 60 + em) - (sh * 60 + sm);
-  if (diff <= 0) return 0;
-  return Math.round((diff / 60) * 100) / 100;
+export const LEAVE_BREAK_START = '12:00';
+export const LEAVE_BREAK_END = '13:00';
+
+function toMinutes(timeVal) {
+  const hhmm = formatTimeHHmm(timeVal);
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+export function computeLeaveDurationHoursClient(startTime, endTime, workStart = null, workEnd = null) {
+  const startM = toMinutes(startTime);
+  const endM = toMinutes(endTime);
+  if (startM == null || endM == null || endM <= startM) return 0;
+
+  const wsM = toMinutes(workStart);
+  const weM = toMinutes(workEnd);
+  const effStart = wsM != null ? Math.max(startM, wsM) : startM;
+  const effEnd = weM != null ? Math.min(endM, weM) : endM;
+  if (effEnd <= effStart) return 0;
+
+  const breakOverlap = Math.max(
+    0,
+    Math.min(effEnd, toMinutes(LEAVE_BREAK_END)) - Math.max(effStart, toMinutes(LEAVE_BREAK_START))
+  );
+  return Math.round(((effEnd - effStart - breakOverlap) / 60) * 100) / 100;
 }
 
 function jakartaWeekdayClient(dateStr) {
