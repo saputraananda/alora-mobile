@@ -1,5 +1,7 @@
 import { formatClock, toDateKey } from '../../../utils/attendanceDisplay.js';
 
+export { getDefaultCutoff } from '../../../utils/cutoffPeriod.js';
+
 export const MAX_RANGE_DAYS = 90;
 
 const LEAVE_TYPE_LABEL = { izin: 'Izin', sakit: 'Sakit', cuti: 'Cuti' };
@@ -67,21 +69,6 @@ export function getCutoffRange(month, year) {
     startDate: ymd(start),
     endDate: ymd(end),
   };
-}
-
-/** Active cutoff month/year: if day > 25, roll to next calendar month. */
-export function getDefaultCutoff(now = new Date()) {
-  const day = now.getDate();
-  let cutoffMonth = now.getMonth() + 1;
-  let cutoffYear = now.getFullYear();
-  if (day > 25) {
-    cutoffMonth += 1;
-    if (cutoffMonth > 12) {
-      cutoffMonth = 1;
-      cutoffYear += 1;
-    }
-  }
-  return { cutoffMonth, cutoffYear };
 }
 
 /** Format YYYY-MM-DD as `21 Sep 2026`. */

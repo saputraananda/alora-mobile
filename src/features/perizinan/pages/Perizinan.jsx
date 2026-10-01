@@ -15,6 +15,7 @@ import {
   todayStrJakarta,
 } from '../utils/leaveTimeClient.js';
 import { getAuthToken } from '../../../utils/authSession.js';
+import { getDefaultCutoff } from '../../../utils/cutoffPeriod.js';
 import PageHeaderRefreshButton from '../../../components/PageHeaderRefreshButton.jsx';
 
 const api = axios.create({
@@ -251,10 +252,10 @@ export default function Perizinan() {
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState(null);
 
-  const _now = new Date();
-  const [filterMonth, setFilterMonth] = useState(_now.getMonth() + 1);
-  const [filterYear, setFilterYear] = useState(_now.getFullYear());
-  const [yearOptions, setYearOptions] = useState([_now.getFullYear()]);
+  const { cutoffMonth, cutoffYear } = getDefaultCutoff();
+  const [filterMonth, setFilterMonth] = useState(cutoffMonth);
+  const [filterYear, setFilterYear] = useState(cutoffYear);
+  const [yearOptions, setYearOptions] = useState([cutoffYear]);
   const [stats, setStats] = useState({ izin: 0, sakit: 0, cuti: 0 });
 
   const [formOpen, setFormOpen] = useState(false);
@@ -317,7 +318,9 @@ export default function Perizinan() {
 
   useEffect(() => {
     api.get('/leave/years')
-      .then(({ data }) => setYearOptions(data.years || [new Date().getFullYear()]))
+      .then(({ data }) => setYearOptions(
+        [...new Set([cutoffYear, ...(data.years || [])])].sort((a, b) => b - a)
+      ))
       .catch(() => {});
   }, []);
 

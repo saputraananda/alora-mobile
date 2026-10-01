@@ -7,6 +7,7 @@ import {
   computeDurationHours,
 } from '../utils/lemburRoClient.js';
 import { getAuthToken } from '../../../utils/authSession.js';
+import { getDefaultCutoff } from '../../../utils/cutoffPeriod.js';
 import PageHeaderRefreshButton from '../../../components/PageHeaderRefreshButton.jsx';
 
 const api = axios.create({ baseURL: '/api' });
@@ -132,9 +133,9 @@ export default function LemburRo() {
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState(null);
 
-  const _now = new Date();
-  const [filterMonth, setFilterMonth] = useState(_now.getMonth() + 1);
-  const [filterYear, setFilterYear] = useState(_now.getFullYear());
+  const { cutoffMonth, cutoffYear } = getDefaultCutoff();
+  const [filterMonth, setFilterMonth] = useState(cutoffMonth);
+  const [filterYear, setFilterYear] = useState(cutoffYear);
   const [stats, setStats] = useState({ lembur: 0, pending: 0 });
 
   const [formOpen, setFormOpen] = useState(false);
