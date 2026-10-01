@@ -19,7 +19,6 @@ import {
 } from './utils/leaveFundingService.js';
 import { getOvertimeUsableBalance, getReplaceOffUsableBalance } from './utils/ledgerService.js';
 import {
-  assertIzinSameDayRules,
   formatTimeHHmm,
   getDefaultWorkHoursForDate,
   isPartialDuration,
@@ -140,8 +139,6 @@ async function buildLeaveTimeAndFundingFields(employeeId, {
   endTime,
   fundingSourcesRaw,
 }) {
-  assertIzinSameDayRules(leaveType, durationType, startDate);
-
   let resolvedDurationType = durationType;
   let start_time = null;
   let end_time = null;

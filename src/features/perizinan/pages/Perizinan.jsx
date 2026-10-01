@@ -329,17 +329,9 @@ export default function Perizinan() {
     }
   }, [durationType, startDate, endDate]);
 
-  const isIzinToday = leaveType === 'izin' && startDate === todayStr();
   const isPartialMode = durationType === 'partial' || isPartialDurationType(durationType);
-  const showFullDayOption = !(leaveType === 'izin' && isIzinToday);
   const showDateRange = durationType === 'full_day' && !isPartialMode;
   const isMultiDayRange = showDateRange && startDate !== endDate;
-
-  useEffect(() => {
-    if (isIzinToday && durationType === 'full_day') {
-      setDurationType('partial');
-    }
-  }, [isIzinToday, durationType]);
 
   useEffect(() => {
     if (!formOpen || leaveType !== 'izin') {
@@ -813,7 +805,7 @@ export default function Perizinan() {
               <div>
                 <label className="block text-[12px] font-semibold text-slate-600 mb-2">Durasi</label>
                 <div className="space-y-2">
-                  {DURATION_TYPES.filter((dt) => dt.key !== 'full_day' || showFullDayOption).map((dt) => (
+                  {DURATION_TYPES.map((dt) => (
                     <button
                       key={dt.key}
                       type="button"
@@ -831,11 +823,6 @@ export default function Perizinan() {
                     </button>
                   ))}
                 </div>
-                {isIzinToday && (
-                  <p className="text-[11px] text-amber-700 mt-2">
-                    Izin hari ini hanya partial (isi jam). Full day untuk tanggal selain hari ini.
-                  </p>
-                )}
               </div>
 
               {(durationType === 'full_day' && isMultiDayRange && previewDurationHours > 0) && (

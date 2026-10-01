@@ -83,16 +83,6 @@ export async function getDefaultWorkHoursForDate(dateStr) {
   return { start_time: '08:00', end_time: '17:00', work_hours: DEFAULT_WORK_HOURS_WEEKDAY };
 }
 
-export function assertIzinSameDayRules(leaveType, durationType, startDate) {
-  if (leaveType !== 'izin') return;
-  const today = todayDateStringJakarta();
-  if (startDate === today && !isPartialDuration(durationType)) {
-    const error = new Error('Izin hari ini hanya boleh partial (pilih jam), tidak boleh seharian penuh');
-    error.statusCode = 422;
-    throw error;
-  }
-}
-
 export async function getRoFullDayMinHours(dateStr) {
   return (await getDefaultWorkHoursForDate(dateStr)).work_hours;
 }
