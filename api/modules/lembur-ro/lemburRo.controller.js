@@ -1,5 +1,6 @@
 import { aloraMobilePool, mainPool } from '../../db/pool.js';
 import { getApproverContext } from '../../shared/utils/approvalAccess.js';
+import { creditOvertimeFromLemburRo } from '../perizinan/utils/ledgerService.js';
 import {
   ACTIVE_STATUSES,
   EDITABLE_STATUSES,
@@ -476,6 +477,7 @@ export const approveSupervisor = async (req, res) => {
        WHERE id = ?`,
       [req.employeeId, req.employeeId, ctx.fullName, id]
     );
+    await creditOvertimeFromLemburRo(id);
     return res.json({ message: 'Pengajuan lembur berhasil disetujui.' });
   } catch (error) {
     console.error('[lemburRo] approveSupervisor', error);
@@ -570,6 +572,7 @@ export const approveHRD = async (req, res) => {
        WHERE id = ?`,
       [req.employeeId, req.employeeId, ctx.fullName, id]
     );
+    await creditOvertimeFromLemburRo(id);
     return res.json({ message: 'Pengajuan berhasil disetujui HRD' });
   } catch (error) {
     console.error('[lemburRo] approveHRD', error);
