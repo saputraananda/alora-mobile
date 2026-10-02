@@ -115,6 +115,17 @@ export async function listWorkDaysInRange(startDate, endDate) {
   return days;
 }
 
+export async function countWorkDaysForLeave(row) {
+  const start = String(row?.start_date || '').slice(0, 10);
+  const end = String(row?.end_date || start).slice(0, 10);
+  if (!start || start === end || isPartialDuration(row?.duration_type)) return null;
+  try {
+    return (await listWorkDaysInRange(start, end)).length;
+  } catch {
+    return null;
+  }
+}
+
 export async function sumFullDayHoursInRange(startDate, endDate) {
   const workDays = await listWorkDaysInRange(startDate, endDate);
   if (workDays.length === 0) {

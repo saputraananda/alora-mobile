@@ -16,6 +16,7 @@ import {
 } from '../utils/leaveTimeClient.js';
 import { getAuthToken } from '../../../utils/authSession.js';
 import { getDefaultCutoff } from '../../../utils/cutoffPeriod.js';
+import { formatLeaveDateLabel } from '../../../utils/leaveDateLabel.js';
 import PageHeaderRefreshButton from '../../../components/PageHeaderRefreshButton.jsx';
 
 const api = axios.create({
@@ -139,12 +140,6 @@ function StatusBadge({ status }) {
 
 function LeaveCard({ item, onCancel, onEdit, onViewDoctorNote }) {
   const lt = LEAVE_TYPES.find((t) => t.key === item.leave_type) || LEAVE_TYPES[0];
-  const sameDay =
-    item.start_date === item.end_date
-    || item.start_date?.slice(0, 10) === item.end_date?.slice(0, 10);
-  const timeLabel = item.start_time && item.end_time
-    ? `${formatTimeHHmm(item.start_time)}–${formatTimeHHmm(item.end_time)}`
-    : null;
   const fundingChips = formatFundingChips(item);
   const durationLabel = isPartialDurationType(item.duration_type)
     ? DURATION_LABEL.partial
@@ -160,17 +155,7 @@ function LeaveCard({ item, onCancel, onEdit, onViewDoctorNote }) {
         <StatusBadge status={item.status} />
       </div>
       <div className="px-4 py-3 space-y-1.5">
-        <div className="text-[12.5px] text-slate-600">
-          {sameDay
-            ? formatDateID(item.start_date)
-            : `${formatDateID(item.start_date)} – ${formatDateID(item.end_date)}`}
-        </div>
-        {timeLabel && (
-          <div className="text-[12px] text-slate-500">
-            Jam: {timeLabel}
-            {item.leave_duration_hours != null && ` (${item.leave_duration_hours} jam)`}
-          </div>
-        )}
+        <div className="text-[12.5px] text-slate-600">{formatLeaveDateLabel(item)}</div>
         {fundingChips?.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-1">
             {fundingChips.map((chip) => (

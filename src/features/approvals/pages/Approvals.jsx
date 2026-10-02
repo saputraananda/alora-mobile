@@ -4,6 +4,7 @@ import axios from 'axios';
 import { ArrowLeft } from 'lucide-react';
 import { useDocumentTitle } from '../../../hooks/useDocumentTitle.js';
 import { getAuthToken } from '../../../utils/authSession.js';
+import { formatLeaveDateLabel } from '../../../utils/leaveDateLabel.js';
 import PageHeaderRefreshButton from '../../../components/PageHeaderRefreshButton.jsx';
 
 const api = axios.create({ baseURL: '/api' });
@@ -224,7 +225,9 @@ export default function Approvals() {
                       {item.title || meta.label}
                     </div>
                     <div className="text-[11px] text-slate-500 mt-0.5">
-                      {formatDateID(item.work_date)}
+                      {item.kind === 'leave'
+                        ? formatLeaveDateLabel(item.meta || {})
+                        : formatDateID(item.work_date)}
                       {item.action_role === 'hrd' ? ' · HRD' : ' · SPV'}
                     </div>
                   </div>

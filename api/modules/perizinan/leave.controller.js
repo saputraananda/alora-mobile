@@ -19,6 +19,7 @@ import {
 } from './utils/leaveFundingService.js';
 import { getOvertimeUsableBalance, getReplaceOffUsableBalance } from './utils/ledgerService.js';
 import {
+  countWorkDaysForLeave,
   formatTimeHHmm,
   getDefaultWorkHoursForDate,
   isPartialDuration,
@@ -366,11 +367,16 @@ export const getLeaveList = async (req, res) => {
       [employeeId, ...periodParams, limit, offset]
     );
 
+    const items = await Promise.all(rows.map(async (row) => {
+      const s = serializeLeave(row);
+      return { ...s, work_days_count: await countWorkDaysForLeave(s) };
+    }));
+
     return res.json({
       total: Number(total) || 0,
       page,
       limit,
-      items: rows.map(serializeLeave),
+      items,
     });
   } catch (error) {
     console.error('[leave] getLeaveList', error);

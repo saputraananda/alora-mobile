@@ -2,6 +2,7 @@ import { aloraMobilePool, mainPool } from '../../db/pool.js';
 import { getApproverContext } from '../../shared/utils/approvalAccess.js';
 import { dateToCutoffPeriod } from '../../shared/utils/workScheduleRules.js';
 import { MODE_REQUEST_STATUSES, toDateOnly } from '../absensi/utils/attendanceModeRequestRules.js';
+import { countWorkDaysForLeave, formatTimeHHmm } from '../perizinan/utils/leaveTimeRules.js';
 
 async function getEmployeeMap(employeeIds) {
   const uniqueIds = [...new Set(employeeIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
@@ -141,39 +142,46 @@ async function fetchLeaveInbox(ctx, typeFilter = null) {
   );
 
   const empMap = await getEmployeeMap(rows.map((r) => r.employee_id));
-  return rows
-    .filter((row) => {
-      if (Number(row.employee_id) === Number(ctx.employeeId)) return false;
-      if (row.status === 'Pending_Supervisor' && ctx.isSpv) {
-        if (ctx.departmentId != null && Number(row.department_id) !== ctx.departmentId) return false;
-        return true;
-      }
-      if (row.status === 'Pending_HRD' && ctx.isHrd) return true;
-      return false;
-    })
-    .map((row) => {
-      const emp = empMap.get(Number(row.employee_id));
-      const start = toDateOnly(row.start_date);
-      const end = toDateOnly(row.end_date);
-      const dateLabel = start && end && start !== end ? `${start} – ${end}` : start;
-      return {
-        kind: 'leave',
-        id: Number(row.id),
-        employee_id: Number(row.employee_id),
-        employee_name: emp?.full_name || null,
-        title: leaveTitle(row.leave_type),
-        subtitle: row.reason || row.description || dateLabel || '',
-        work_date: start,
-        status: row.status,
-        action_role: row.status === 'Pending_HRD' ? 'hrd' : 'spv',
-        meta: {
-          leave_type: row.leave_type,
-          duration_type: row.duration_type,
+  const visible = rows.filter((row) => {
+    if (Number(row.employee_id) === Number(ctx.employeeId)) return false;
+    if (row.status === 'Pending_Supervisor' && ctx.isSpv) {
+      if (ctx.departmentId != null && Number(row.department_id) !== ctx.departmentId) return false;
+      return true;
+    }
+    if (row.status === 'Pending_HRD' && ctx.isHrd) return true;
+    return false;
+  });
+
+  return Promise.all(visible.map(async (row) => {
+    const emp = empMap.get(Number(row.employee_id));
+    const start = toDateOnly(row.start_date);
+    const end = toDateOnly(row.end_date);
+    return {
+      kind: 'leave',
+      id: Number(row.id),
+      employee_id: Number(row.employee_id),
+      employee_name: emp?.full_name || null,
+      title: leaveTitle(row.leave_type),
+      subtitle: row.reason || row.description || '',
+      work_date: start,
+      status: row.status,
+      action_role: row.status === 'Pending_HRD' ? 'hrd' : 'spv',
+      meta: {
+        leave_type: row.leave_type,
+        duration_type: row.duration_type,
+        start_date: start,
+        end_date: end,
+        start_time: formatTimeHHmm(row.start_time),
+        end_time: formatTimeHHmm(row.end_time),
+        leave_duration_hours: row.leave_duration_hours != null ? Number(row.leave_duration_hours) : null,
+        work_days_count: await countWorkDaysForLeave({
           start_date: start,
           end_date: end,
-        },
-      };
-    });
+          duration_type: row.duration_type,
+        }),
+      },
+    };
+  }));
 }
 
 async function fetchLemburInbox(ctx, typeFilter = null) {

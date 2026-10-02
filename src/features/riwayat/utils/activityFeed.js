@@ -1,4 +1,5 @@
 import { formatClock, toDateKey } from '../../../utils/attendanceDisplay.js';
+import { formatLeaveDateLabel } from '../../../utils/leaveDateLabel.js';
 
 export { getDefaultCutoff } from '../../../utils/cutoffPeriod.js';
 
@@ -206,14 +207,10 @@ export function normalizeAttendance(item) {
 export function normalizeLeave(item) {
   if (!item?.id) return null;
   const start = toDateKey(item.start_date);
-  const end = toDateKey(item.end_date) || start;
   if (!start) return null;
   const typeLabel = LEAVE_TYPE_LABEL[item.leave_type] || item.leave_type || 'Cuti/Izin';
   const reasonPart = clip(item.reason, 48);
-  const rangeLabel =
-    end && end !== start
-      ? `${formatYmdShortId(start)} – ${formatYmdShortId(end)}`
-      : formatYmdShortId(start);
+  const rangeLabel = formatLeaveDateLabel(item);
   const subtitle = reasonPart ? `${rangeLabel} · ${reasonPart}` : rangeLabel;
   const status = item.status;
   return {
