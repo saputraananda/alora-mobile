@@ -1,6 +1,6 @@
 import { aloraMobilePool } from '../../../db/pool.js';
 
-export const ABSEN_RADIUS_KM = 2;
+export const ABSEN_RADIUS_KM = 0.05;
 export const HO_LOCATION_CODE = 'HO-ALR';
 export const HO_LOCATION_LABEL = 'HO Alora';
 export const OUTSIDE_LOCATION_LABEL = 'Lokasi diluar jangkauan';

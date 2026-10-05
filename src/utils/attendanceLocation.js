@@ -2,7 +2,7 @@ export const INSIDE_LOCATION_LABEL = 'HO Alora';
 export const OUTSIDE_LOCATION_LABEL = 'Lokasi diluar jangkauan';
 export const OUTSIDE_NORMAL_LABEL = 'Sedang di luar';
 export const UNRECORDED_LOCATION_LABEL = 'Lokasi belum tercatat';
-export const DEFAULT_ABSEN_RADIUS_KM = 2;
+export const DEFAULT_ABSEN_RADIUS_KM = 0.05;
 
 function toRadians(value) {
   return (value * Math.PI) / 180;

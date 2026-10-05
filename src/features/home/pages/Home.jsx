@@ -467,7 +467,7 @@ export default function Home() {
                 </p>
                 <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 mt-2">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>GPS · radius 2 km HO-ALR</span>
+                  <span>GPS · radius 50 m HO-ALR</span>
                 </div>
               </div>
             </div>

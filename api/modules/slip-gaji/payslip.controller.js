@@ -8,7 +8,7 @@ const INACTIVE_MESSAGE = 'Slip gaji hanya tersedia untuk karyawan aktif';
 async function isActiveEmployee(employeeId) {
   const [rows] = await mainPool.query(
     `SELECT employee_id FROM mst_employee
-     WHERE employee_id = ? AND is_deleted = 0 AND exit_date IS NULL AND employment_status_id IS NOT NULL
+     WHERE employee_id = ? AND is_deleted = 0 AND exit_date IS NULL
      LIMIT 1`,
     [employeeId]
   );
