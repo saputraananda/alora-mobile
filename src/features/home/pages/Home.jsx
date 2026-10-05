@@ -20,6 +20,7 @@ import { relativeDateLabel } from '../../../utils/relativeDateLabel.js';
 import { useDocumentTitle } from '../../../hooks/useDocumentTitle.js';
 import { getAuthToken, getAuthUser } from '../../../utils/authSession.js';
 import PageHeaderRefreshButton from '../../../components/PageHeaderRefreshButton.jsx';
+import UserAvatar from '../../../components/UserAvatar.jsx';
 
 const homeApi = axios.create({ baseURL: '/api' });
 homeApi.interceptors.request.use((config) => {
@@ -66,6 +67,16 @@ export default function Home() {
     const storedUser = getAuthUser();
     if (storedUser) {
       setUserData(storedUser);
+      // Fetch profil untuk sync avatar terbaru jika belum ada di cache
+      if (!storedUser.profile_url && !storedUser.avatar) {
+        homeApi.get(`/profile/detail?email=${encodeURIComponent(storedUser.email || '')}&employeeId=${storedUser.employee_id || 0}&userId=${storedUser.id || 0}`)
+          .then((r) => {
+            if (r.data?.success && r.data?.data) {
+              setUserData(prev => ({ ...prev, ...r.data.data }));
+            }
+          })
+          .catch(() => {});
+      }
     }
   }, []);
 
@@ -319,9 +330,12 @@ export default function Home() {
             className="flex items-center gap-3 cursor-pointer group"
           >
             {/* Squircle Avatar */}
-            <div className="w-[50px] h-[50px] rounded-full border border-white/20 bg-white/10 flex items-center justify-center text-white font-extrabold text-base flex-shrink-0 shadow-md backdrop-blur-md group-hover:scale-105 transition">
-              {formattedUserName.split(' ').slice(0, 2).map(n => n[0]).join('') || 'AP'}
-            </div>
+            <UserAvatar
+              src={userData?.profile_url || userData?.avatar || userData?.profile_path}
+              name={formattedUserName}
+              className="w-[50px] h-[50px] rounded-full border border-white/20 bg-white/10 flex-shrink-0 shadow-md backdrop-blur-md group-hover:scale-105 transition"
+              initialsClassName="text-white font-extrabold text-base"
+            />
 
             {/* User Name & Subtitle */}
             <div className="flex flex-col">

@@ -30,6 +30,8 @@ export function buildUserDataFromRow(dbUser, trimmedUsername) {
     employee_code: dbUser.employee_code || `EMP-${dbUser.id}`,
     job_level: dbUser.job_level_name || dbUser.position_name || dbUser.role || 'Staff Operasional',
     department: dbUser.department_name || 'PT Waschen Alora Indonesia',
+    avatar: dbUser.avatar || dbUser.profile_path || null,
+    profile_url: dbUser.profile_path || dbUser.avatar || null,
   };
 }
 

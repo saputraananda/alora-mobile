@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useDocumentTitle } from '../../../hooks/useDocumentTitle.js';
 import { getAuthToken, getAuthUser } from '../../../utils/authSession.js';
+import { getAvatarUrl } from '../../../utils/avatarUrl.js';
 
 const api = axios.create({
     baseURL: '/api',
@@ -505,7 +506,7 @@ export default function EditProfile() {
                     >
                         {detail?.profile_url && !imgErr
                             ? <img
-                                src={detail.profile_url}
+                                src={getAvatarUrl(detail.profile_url)}
                                 alt="Foto Profil"
                                 onError={() => setImgErr(true)}
                                 className="w-full h-full object-cover"

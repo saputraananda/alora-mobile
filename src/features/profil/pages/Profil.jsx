@@ -4,6 +4,7 @@ import axios from 'axios';
 
 import ConfirmModal from '../../../components/ConfirmModal.jsx';
 import Modal from '../../../components/Modal.jsx';
+import UserAvatar from '../../../components/UserAvatar.jsx';
 import { FaceScanModal } from '../../auth/index.js';
 import { formatName } from '../../../utils/FormatName.js';
 import { useDocumentTitle } from '../../../hooks/useDocumentTitle.js';
@@ -334,9 +335,12 @@ export default function Profile() {
         <div className="relative z-20 flex flex-col items-center text-center pt-2">
           {/* Avatar ring */}
           <div className="relative mb-3">
-            <div className="w-[84px] h-[84px] rounded-full bg-gradient-to-br from-blue-400/40 via-[#0E203B] to-[#050B14] border-[3px] border-white/40 flex items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
-              <span className="text-[28px] font-black text-white">{getInitials(formattedName)}</span>
-            </div>
+            <UserAvatar
+              src={currentUser.profile_url || currentUser.avatar || currentUser.profile_path}
+              name={formattedName}
+              className="w-[84px] h-[84px] rounded-full bg-gradient-to-br from-blue-400/40 via-[#0E203B] to-[#050B14] border-[3px] border-white/40 shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+              initialsClassName="text-[28px] font-black text-white"
+            />
           </div>
 
           {/* Name */}
