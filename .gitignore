@@ -7,6 +7,11 @@ dist-ssr/
 .env.test.local
 .env.production.local
 .env.prod
+prisma.config.ts
+.env.copy
+.env copy
+AGENTS.md
+face recognition.md
 /agent
 
 # Editor directories and files
@@ -22,3 +27,10 @@ dist-ssr/
 
 /uploads
 /generated
+/prisma/
+/exports
+
+/.agents/
+/docs/
+/plans/
+/scripts/
