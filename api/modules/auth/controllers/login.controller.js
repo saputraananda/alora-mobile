@@ -78,18 +78,19 @@ export const handleLogin = async (req, res) => {
       });
     }
 
-    let isMatch = false;
-
-    if (dbUser.password_hash) {
-      if (dbUser.password_hash.startsWith('$2')) {
-        isMatch = await bcrypt.compare(password, dbUser.password_hash);
-      } else {
-        isMatch = (password === dbUser.password_hash);
-      }
+    if (!dbUser.password_hash) {
+      return res.status(401).json({
+        success: false,
+        message: 'Kata sandi tidak sesuai.',
+      });
     }
 
-    if (!isMatch && (password === 'admin' || password === '123456' || password === 'alora123')) {
-      isMatch = true;
+    let isMatch = false;
+
+    if (dbUser.password_hash.startsWith('$2')) {
+      isMatch = await bcrypt.compare(password, dbUser.password_hash);
+    } else {
+      isMatch = (password === dbUser.password_hash);
     }
 
     if (!isMatch) {
