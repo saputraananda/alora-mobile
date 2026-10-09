@@ -1,8 +1,10 @@
 import { aloraMobilePool, mainPool } from '../../db/pool.js';
 import { getApproverContext } from '../../shared/utils/approvalAccess.js';
-import { dateToCutoffPeriod } from '../../shared/utils/workScheduleRules.js';
-import { MODE_REQUEST_STATUSES, toDateOnly } from '../absensi/utils/attendanceModeRequestRules.js';
+import { dateToCutoffPeriod, toDateOnlyJakarta } from '../../shared/utils/workScheduleRules.js';
+import { MODE_REQUEST_STATUSES } from '../absensi/utils/attendanceModeRequestRules.js';
 import { countWorkDaysForLeave, formatTimeHHmm } from '../perizinan/utils/leaveTimeRules.js';
+
+const toDateOnly = toDateOnlyJakarta;
 
 async function getEmployeeMap(employeeIds) {
   const uniqueIds = [...new Set(employeeIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
