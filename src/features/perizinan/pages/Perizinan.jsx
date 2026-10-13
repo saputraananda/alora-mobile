@@ -983,7 +983,6 @@ export default function Perizinan() {
                   <input
                     type="date"
                     value={startDate}
-                    min={leaveType === 'izin' ? undefined : todayStr()}
                     onChange={(e) => setStartDate(e.target.value)}
                     className="w-full border border-slate-200 rounded-xl px-3 py-2 text-[13px] bg-slate-50"
                   />
