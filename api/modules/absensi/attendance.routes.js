@@ -17,6 +17,7 @@ import {
   replaceCheckOutPhoto,
   deleteCheckInPhoto,
   deleteCheckOutPhoto,
+  getCutoffSummary,
 } from './attendance.controller.js';
 
 const router = Router();
@@ -41,6 +42,7 @@ router.use(requireEmployee);
 
 router.get('/today', getTodayAttendance);
 router.get('/month', getMonthAttendance);
+router.get('/summary-cutoff', getCutoffSummary);
 router.get('/balances', getAttendanceBalances);
 router.get('/day-context', getDayContext);
 router.get('/punch-context', getPunchContext);

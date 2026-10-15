@@ -11,7 +11,8 @@ import {
   CheckCircle2,
   Bell,
   Megaphone,
-  CheckSquare
+  CheckSquare,
+  BarChart3
 } from 'lucide-react';
 import aloraMobileLogo from '../../../assets/images/aloramobile-white.webp';
 import Modal from '../../../components/Modal.jsx';
@@ -247,6 +248,8 @@ export default function Home() {
       navigate('/lembur-ro');
     } else if (item.id === 'slipgaji') {
       navigate('/slip-gaji');
+    } else if (item.id === 'ringkasan') {
+      navigate('/ringkasan');
     } else {
       openMenuModal(item.title, item.modalDesc);
     }
@@ -302,6 +305,14 @@ export default function Home() {
       icon: <Wallet className="w-5 h-5 text-sky-600" />,
       badgeColor: 'bg-sky-50 border-sky-200/80',
       modalDesc: 'Unduh dan Lihat Riwayat Rincian Slip Gaji Bulanan Pegawai.'
+    },
+    {
+      id: 'ringkasan',
+      title: 'Ringkasan',
+      subtitle: 'Rekap Cut Off',
+      icon: <BarChart3 className="w-5 h-5 text-blue-600" />,
+      badgeColor: 'bg-blue-50 border-blue-200/80',
+      modalDesc: 'Rekapitulasi kehadiran, cuti, lembur, dan potongan per cutoff.'
     }
   ];
 

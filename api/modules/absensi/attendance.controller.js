@@ -10,6 +10,9 @@ import {
   todayDateStringJakarta,
   toDateOnlyJakarta,
   getWorkScheduleForDate,
+  buildPeriodRange,
+  getCutoffPeriodForToday,
+  addDaysDateString,
 } from '../../shared/utils/workScheduleRules.js';
 import { isAttendanceOffDay, isSundayOpenForEmployee } from '../../shared/utils/attendanceDayRules.js';
 import { getOvertimeUsableBalance, getReplaceOffUsableBalance } from '../perizinan/utils/ledgerService.js';
@@ -920,3 +923,307 @@ export const replaceCheckOutPhoto = async (req, res) => {
     return res.status(status).json({ message: error.message || 'Gagal memperbarui foto keluar' });
   }
 };
+
+function formatHM(minutesVal) {
+  const totalM = Math.max(0, Math.round(Number(minutesVal) || 0));
+  const h = Math.floor(totalM / 60);
+  const m = totalM % 60;
+  return {
+    hours: h,
+    minutes: m,
+    label: `${h}j ${String(m).padStart(2, '0')}m`,
+  };
+}
+
+function hoursToMinutes(hoursVal) {
+  return Math.round((Number(hoursVal) || 0) * 60);
+}
+
+export const getCutoffSummary = async (req, res) => {
+  const employeeId = req.employeeId;
+  const nowPeriod = getCutoffPeriodForToday() || { month: new Date().getMonth() + 1, year: new Date().getFullYear() };
+  const cutoffMonth = Number(req.query.cutoffMonth || nowPeriod.month);
+  const cutoffYear = Number(req.query.cutoffYear || nowPeriod.year);
+
+  const range = buildPeriodRange(cutoffMonth, cutoffYear);
+  if (!range) {
+    return res.status(400).json({ message: 'Periode cutoff tidak valid' });
+  }
+
+  const { periodStart, periodEnd } = range;
+
+  try {
+    // 1. Fetch attendance rows in period
+    const [attendanceRows] = await aloraMobilePool.query(
+      `SELECT * FROM tr_worker_attendance
+       WHERE employee_id = ? AND attendance_date >= ? AND attendance_date <= ?
+       ORDER BY attendance_date ASC`,
+      [employeeId, periodStart, periodEnd]
+    );
+
+    // 2. Fetch approved leaves overlapping period
+    const [leaveRows] = await aloraMobilePool.query(
+      `SELECT id, leave_type, duration_type, start_date, end_date, doctor_note_path,
+              funding_ro_hours, funding_overtime_hours, funding_unpaid_hours,
+              leave_duration_hours
+       FROM tr_worker_leaves
+       WHERE employee_id = ? AND status = 'disetujui'
+         AND start_date <= ? AND end_date >= ?`,
+      [employeeId, periodEnd, periodStart]
+    );
+
+    // 3. Fetch approved sessions
+    const [sessionRows] = await aloraMobilePool.query(
+      `SELECT id, session_type, work_date, status, duration_hours
+       FROM tr_attendance_sessions
+       WHERE employee_id = ? AND status = 'disetujui'
+         AND work_date >= ? AND work_date <= ?`,
+      [employeeId, periodStart, periodEnd]
+    );
+
+    // 4. Overtime ledger & lembur form
+    const [[otEarnedLedger]] = await aloraMobilePool.query(
+      `SELECT COALESCE(SUM(l.hours), 0) AS total
+       FROM tr_overtime_ledger l
+       LEFT JOIN tr_attendance_sessions s ON s.id = l.session_id
+       LEFT JOIN tr_worker_lembur_ro r ON r.id = l.lembur_ro_id
+       WHERE l.employee_id = ?
+         AND l.mutation_type = 'earned'
+         AND COALESCE(DATE(s.work_date), DATE(r.work_date), DATE(l.created_at)) >= ?
+         AND COALESCE(DATE(s.work_date), DATE(r.work_date), DATE(l.created_at)) <= ?`,
+      [employeeId, periodStart, periodEnd]
+    );
+
+    const [[otUsedLedger]] = await aloraMobilePool.query(
+      `SELECT COALESCE(SUM(l.hours), 0) AS total
+       FROM tr_overtime_ledger l
+       LEFT JOIN tr_worker_leaves lv ON lv.id = l.leave_id
+       WHERE l.employee_id = ?
+         AND l.mutation_type = 'used'
+         AND COALESCE(DATE(lv.start_date), DATE(l.created_at)) >= ?
+         AND COALESCE(DATE(lv.start_date), DATE(l.created_at)) <= ?`,
+      [employeeId, periodStart, periodEnd]
+    );
+
+    const [[lemburFormRow]] = await aloraMobilePool.query(
+      `SELECT COALESCE(SUM(duration_hours), 0) AS total
+       FROM tr_worker_lembur_ro
+       WHERE employee_id = ? AND status = 'disetujui'
+         AND work_date >= ? AND work_date <= ?`,
+      [employeeId, periodStart, periodEnd]
+    );
+
+    const otEarnedHours = Math.max(Number(otEarnedLedger?.total || 0), Number(lemburFormRow?.total || 0));
+    const otUsedHours = Number(otUsedLedger?.total || 0);
+    const otPaidHours = Math.max(0, otEarnedHours - otUsedHours);
+
+    // 5. Aggregate day by day
+    const attendanceByDate = new Map();
+    for (const row of attendanceRows) {
+      attendanceByDate.set(toDateOnlyJakarta(row.attendance_date), row);
+    }
+
+    let totalDays = 0;
+    let workDays = 0;
+
+    let hadirHarian = 0;
+    let wfa = 0;
+    let sakitSkd = 0;
+    let replaceOff = 0;
+    let cuti = 0;
+    let izinPakaiLembur = 0;
+    let halfDay = 0;
+
+    let tidakHadirHarian = 0;
+    let wod = 0;
+    let sakitNonSkd = 0;
+    let izinUnpaidLeave = 0;
+
+    let unpaidHourIzinLemburM = 0;
+    let unpaidHourHalfDayM = 0;
+
+    const processedLeaveUnpaidIds = new Set();
+
+    let curr = periodStart;
+    const todayStr = todayDateStringJakarta();
+
+    while (curr <= periodEnd) {
+      totalDays += 1;
+      const isOff = await isAttendanceOffDay(employeeId, curr);
+      if (!isOff) {
+        workDays += 1;
+      }
+
+      const att = attendanceByDate.get(curr);
+      const dayLeaves = leaveRows.filter((l) => {
+        const s = toDateOnlyJakarta(l.start_date);
+        const e = toDateOnlyJakarta(l.end_date);
+        return curr >= s && curr <= e;
+      });
+      const daySessions = sessionRows.filter((s) => toDateOnlyJakarta(s.work_date) === curr);
+
+      const hasClockIn = Boolean(att?.clock_in);
+      const isWodMode = att?.attendance_mode === 'wod' || daySessions.some((s) => s.session_type === 'earned_replace_off');
+      const isWfaMode = att?.attendance_mode === 'wfa';
+
+      let matchedDay = false;
+
+      // Check leaves first
+      if (dayLeaves.length > 0) {
+        for (const l of dayLeaves) {
+          const ltype = String(l.leave_type || '').toLowerCase();
+          const dtype = String(l.duration_type || '').toLowerCase();
+          const isPartial = dtype === 'partial' || dtype === 'half_day_morning' || dtype === 'half_day_afternoon';
+
+          if (isPartial) {
+            halfDay += 1;
+            matchedDay = true;
+            if (!processedLeaveUnpaidIds.has(l.id)) {
+              processedLeaveUnpaidIds.add(l.id);
+              const h = Number(l.leave_duration_hours) || 4;
+              unpaidHourHalfDayM += hoursToMinutes(h);
+            }
+          } else if (ltype === 'cuti') {
+            cuti += 1;
+            matchedDay = true;
+          } else if (ltype === 'sakit') {
+            if (l.doctor_note_path) {
+              sakitSkd += 1;
+            } else {
+              sakitNonSkd += 1;
+            }
+            matchedDay = true;
+          } else if (ltype === 'wfa') {
+            wfa += 1;
+            matchedDay = true;
+          } else if (ltype === 'izin') {
+            const ro = Number(l.funding_ro_hours || 0);
+            const ot = Number(l.funding_overtime_hours || 0);
+            const unpaid = Number(l.funding_unpaid_hours || 0);
+
+            if (ot > 0) {
+              izinPakaiLembur += 1;
+              if (unpaid > 0 && !processedLeaveUnpaidIds.has(l.id)) {
+                processedLeaveUnpaidIds.add(l.id);
+                unpaidHourIzinLemburM += hoursToMinutes(unpaid);
+              }
+            } else if (ro > 0) {
+              replaceOff += 1;
+            } else {
+              izinUnpaidLeave += 1;
+            }
+            matchedDay = true;
+          }
+        }
+      }
+
+      // Check WOD
+      if (isWodMode) {
+        wod += 1;
+        matchedDay = true;
+      } else if (isWfaMode && !matchedDay) {
+        if (hasClockIn) {
+          wfa += 1;
+          matchedDay = true;
+        }
+      } else if (hasClockIn && !matchedDay) {
+        hadirHarian += 1;
+        matchedDay = true;
+      }
+
+      // If not matched and it's a scheduled work day in the past, count as Alpa (Tidak Hadir Harian)
+      if (!matchedDay && !isOff && curr <= todayStr) {
+        tidakHadirHarian += 1;
+      }
+
+      curr = addDaysDateString(curr, 1);
+    }
+
+    // 6. Terlambat
+    let terlambatTerencanaCount = 0;
+    let terlambatTerencanaM = 0;
+    let terlambatTidakTerencanaCount = 0;
+    let terlambatTidakTerencanaM = 0;
+
+    for (const att of attendanceRows) {
+      const lateM = Math.max(0, Number(att.late_minutes) || 0);
+      const isLate = lateM > 0 || att.late_category != null || att.late_reason != null;
+      if (isLate) {
+        if (att.late_category === 'planned') {
+          terlambatTerencanaCount += 1;
+          terlambatTerencanaM += lateM;
+        } else {
+          terlambatTidakTerencanaCount += 1;
+          terlambatTidakTerencanaM += lateM;
+        }
+      }
+    }
+
+    const totalPaidDays = hadirHarian + wfa + sakitSkd + replaceOff + cuti + izinPakaiLembur + halfDay;
+    const totalOff = tidakHadirHarian + wod + sakitNonSkd + izinUnpaidLeave;
+    const totalUnpaidM = unpaidHourIzinLemburM + unpaidHourHalfDayM;
+    const totalTerlambatCount = terlambatTerencanaCount + terlambatTidakTerencanaCount;
+    const totalTerlambatM = terlambatTerencanaM + terlambatTidakTerencanaM;
+
+    return res.json({
+      success: true,
+      data: {
+        period: {
+          cutoffMonth,
+          cutoffYear,
+          periodStart,
+          periodEnd,
+        },
+        stats: {
+          total_days: totalDays,
+          work_days: workDays,
+        },
+        paid_days: {
+          hadir_harian: hadirHarian,
+          wfa,
+          sakit_skd: sakitSkd,
+          replace_off: replaceOff,
+          cuti,
+          izin_pakai_lembur: izinPakaiLembur,
+          half_day: halfDay,
+          total: totalPaidDays,
+        },
+        off_days: {
+          tidak_hadir_harian: tidakHadirHarian,
+          wod,
+          sakit_non_skd: sakitNonSkd,
+          izin_unpaid_leave: izinUnpaidLeave,
+          total: totalOff,
+        },
+        unpaid_hours: {
+          izin_pakai_lembur: formatHM(unpaidHourIzinLemburM),
+          half_day: formatHM(unpaidHourHalfDayM),
+          total: formatHM(totalUnpaidM),
+        },
+        terlambat: {
+          terencana: {
+            count: terlambatTerencanaCount,
+            duration: formatHM(terlambatTerencanaM),
+          },
+          tidak_terencana: {
+            count: terlambatTidakTerencanaCount,
+            duration: formatHM(terlambatTidakTerencanaM),
+          },
+          total: {
+            count: totalTerlambatCount,
+            duration: formatHM(totalTerlambatM),
+          },
+        },
+        lembur: {
+          saldo_lembur: formatHM(hoursToMinutes(otEarnedHours)),
+          lembur_terpakai: formatHM(hoursToMinutes(otUsedHours)),
+          lembur_dibayar: formatHM(hoursToMinutes(otPaidHours)),
+        },
+      },
+    });
+  } catch (error) {
+    console.error('[attendance] getCutoffSummary error', error);
+    return res.status(500).json({ message: 'Gagal mengambil rekap ringkasan cutoff' });
+  }
+};
+

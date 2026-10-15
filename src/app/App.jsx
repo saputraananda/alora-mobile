@@ -19,6 +19,7 @@ const Perizinan = lazy(() => import('../features/perizinan/pages/Perizinan.jsx')
 const ManagementAbsensi = lazy(() => import('../features/management-absensi/pages/ManagementAbsensi.jsx'));
 const Approvals = lazy(() => import('../features/approvals/pages/Approvals.jsx'));
 const SlipGaji = lazy(() => import('../features/slip-gaji/pages/SlipGaji.jsx'));
+const Ringkasan = lazy(() => import('../features/ringkasan/pages/Ringkasan.jsx'));
 
 function readSplashVisible() {
   try {
@@ -132,6 +133,14 @@ function App() {
                 element={(
                   <ProtectedRoute user={user} showSplash={showSplash}>
                     <SlipGaji />
+                  </ProtectedRoute>
+                )}
+              />
+              <Route
+                path="/ringkasan"
+                element={(
+                  <ProtectedRoute user={user} showSplash={showSplash}>
+                    <Ringkasan />
                   </ProtectedRoute>
                 )}
               />

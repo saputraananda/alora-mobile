@@ -92,7 +92,7 @@ Prisma dipakai **hanya di mesin developer** untuk migrate schema ke `alora_mobil
 
 Runtime mysql2: `mainPool` = `DB_*` (`waschen`); `aloraMobilePool` = `DB_ALORA_MOBILE_*` (`alora_mobile`) — keduanya di `api/db/pool.js`.
 
-Absensi: POST /api/attendance/check-in dan check-out (foto + GPS). Dalam radius 2 km HO-ALR label lokasi "HO Alora"; di luar tetap tersimpan dengan label "Lokasi diluar jangkauan". Foto hari ini bisa diganti (`PUT /api/attendance/photo-in` dan `photo-out`) tanpa mengubah jam/GPS. `DELETE` photo-in/out menghapus punch terkait (jam + GPS + foto) untuk hari yang sama; tidak bisa hapus masuk setelah sudah keluar.
+Absensi: POST /api/attendance/check-in dan check-out (foto + GPS). Dalam radius 50 m HO-ALR label lokasi "HO Alora"; di luar tetap tersimpan dengan label "Lokasi diluar jangkauan". Foto hari ini bisa diganti (`PUT /api/attendance/photo-in` dan `photo-out`) tanpa mengubah jam/GPS. `DELETE` photo-in/out menghapus punch terkait (jam + GPS + foto) untuk hari yang sama; tidak bisa hapus masuk setelah sudah keluar.
 
 Absensi Management (role management): `GET /api/auth/leader-role`, `GET /api/management-attendance/today`, `POST /api/management-attendance/punch-selfie`, `POST /api/management-attendance/delete-punch` — selfie wajib, tanpa GPS, label "Alora Management", hapus punch penuh untuk absen ulang.
 Foto absensi diambil lewat kamera in-app (bukan pilih file galeri).
