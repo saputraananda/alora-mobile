@@ -13,6 +13,7 @@ import {
   buildPeriodRange,
   getCutoffPeriodForToday,
   addDaysDateString,
+  jakartaWeekday,
 } from '../../shared/utils/workScheduleRules.js';
 import { isAttendanceOffDay, isSundayOpenForEmployee } from '../../shared/utils/attendanceDayRules.js';
 import { getOvertimeUsableBalance, getReplaceOffUsableBalance } from '../perizinan/utils/ledgerService.js';
@@ -1023,7 +1024,17 @@ export const getCutoffSummary = async (req, res) => {
       attendanceByDate.set(toDateOnlyJakarta(row.attendance_date), row);
     }
 
+    // Fetch cut-off additional holidays
+    const [[cutoffHolidayRow]] = await aloraMobilePool.query(
+      `SELECT additional_holiday_days, notes
+       FROM mst_cutoff_holiday
+       WHERE cutoff_month = ? AND cutoff_year = ? LIMIT 1`,
+      [cutoffMonth, cutoffYear]
+    );
+    const additionalHolidayDays = Math.max(0, Number(cutoffHolidayRow?.additional_holiday_days || 0));
+
     let totalDays = 0;
+    let sundayDays = 0;
     let workDays = 0;
 
     let hadirHarian = 0;
@@ -1049,6 +1060,10 @@ export const getCutoffSummary = async (req, res) => {
 
     while (curr <= periodEnd) {
       totalDays += 1;
+      const isSunday = jakartaWeekday(curr) === 0;
+      if (isSunday) {
+        sundayDays += 1;
+      }
       const isOff = await isAttendanceOffDay(employeeId, curr);
       if (!isOff) {
         workDays += 1;
@@ -1159,8 +1174,17 @@ export const getCutoffSummary = async (req, res) => {
       }
     }
 
+    const totalHolidayDays = sundayDays + additionalHolidayDays;
+    const finalWorkDays = Math.max(0, totalDays - totalHolidayDays);
+
     const totalPaidDays = hadirHarian + wfa + sakitSkd + replaceOff + cuti + izinPakaiLembur + halfDay;
-    const totalOff = tidakHadirHarian + wod + sakitNonSkd + izinUnpaidLeave;
+
+    // Menyesuaikan Tidak Hadir Harian dengan Hari Kerja Seharusnya dikurangi Total Paid Days
+    const otherOff = wod + sakitNonSkd + izinUnpaidLeave;
+    const expectedOff = Math.max(0, finalWorkDays - totalPaidDays);
+    const finalTidakHadirHarian = Math.max(0, expectedOff - otherOff);
+    const finalTotalOff = finalTidakHadirHarian + otherOff;
+
     const totalUnpaidM = unpaidHourIzinLemburM + unpaidHourHalfDayM;
     const totalTerlambatCount = terlambatTerencanaCount + terlambatTidakTerencanaCount;
     const totalTerlambatM = terlambatTerencanaM + terlambatTidakTerencanaM;
@@ -1176,7 +1200,10 @@ export const getCutoffSummary = async (req, res) => {
         },
         stats: {
           total_days: totalDays,
-          work_days: workDays,
+          sunday_days: sundayDays,
+          additional_holiday_days: additionalHolidayDays,
+          holiday_days: totalHolidayDays,
+          work_days: finalWorkDays,
         },
         paid_days: {
           hadir_harian: hadirHarian,
@@ -1189,11 +1216,11 @@ export const getCutoffSummary = async (req, res) => {
           total: totalPaidDays,
         },
         off_days: {
-          tidak_hadir_harian: tidakHadirHarian,
+          tidak_hadir_harian: finalTidakHadirHarian,
           wod,
           sakit_non_skd: sakitNonSkd,
           izin_unpaid_leave: izinUnpaidLeave,
-          total: totalOff,
+          total: finalTotalOff,
         },
         unpaid_hours: {
           izin_pakai_lembur: formatHM(unpaidHourIzinLemburM),

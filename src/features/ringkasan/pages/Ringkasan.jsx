@@ -97,7 +97,7 @@ export default function Ringkasan() {
     return fetchSummary(cutoffMonth, cutoffYear);
   };
 
-  const stats = data?.stats || { total_days: 0, work_days: 0 };
+  const stats = data?.stats || { total_days: 0, work_days: 0, holiday_days: 0, additional_holiday_days: 0, sunday_days: 0 };
   const paidDays = data?.paid_days || {
     hadir_harian: 0,
     wfa: 0,
@@ -195,35 +195,50 @@ export default function Ringkasan() {
           </div>
         )}
 
-        {/* Quick Stats: Total Hari & Hari Kerja */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white rounded-[22px] p-4 border border-slate-200/80 shadow-[0_2px_12px_rgb(0,0,0,0.02)] flex flex-col justify-between">
+        {/* Quick Stats: Total Hari, Hari Libur & Hari Kerja */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <div className="bg-white rounded-[20px] p-3 sm:p-4 border border-slate-200/80 shadow-[0_2px_12px_rgb(0,0,0,0.02)] flex flex-col justify-between">
             <div>
-              <span className="text-[11px] font-medium text-slate-500">Total Hari</span>
+              <span className="text-[10px] sm:text-[11px] font-medium text-slate-500 block truncate">Total Hari</span>
               <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-[26px] font-black text-navy-950 leading-none tracking-tight">
+                <span className="text-[20px] sm:text-[24px] font-black text-navy-950 leading-none tracking-tight">
                   {stats.total_days}
                 </span>
-                <span className="text-[12px] font-bold text-slate-500">hari</span>
+                <span className="text-[10px] sm:text-[12px] font-bold text-slate-500">hari</span>
               </div>
             </div>
-            <p className="text-[10.5px] text-slate-400 font-normal leading-tight mt-2">
-              Semua hari dalam sebulan, termasuk libur
+            <p className="text-[9px] sm:text-[10.5px] text-slate-400 font-normal leading-tight mt-2">
+              Periode cut off
             </p>
           </div>
 
-          <div className="bg-white rounded-[22px] p-4 border border-slate-200/80 shadow-[0_2px_12px_rgb(0,0,0,0.02)] flex flex-col justify-between">
+          <div className="bg-white rounded-[20px] p-3 sm:p-4 border border-slate-200/80 shadow-[0_2px_12px_rgb(0,0,0,0.02)] flex flex-col justify-between">
             <div>
-              <span className="text-[11px] font-medium text-slate-500">Hari Kerja</span>
+              <span className="text-[10px] sm:text-[11px] font-medium text-amber-600 block truncate">Total Libur</span>
               <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-[26px] font-black text-navy-950 leading-none tracking-tight">
-                  {stats.work_days}
+                <span className="text-[20px] sm:text-[24px] font-black text-amber-600 leading-none tracking-tight">
+                  {stats.holiday_days ?? Math.max(0, stats.total_days - stats.work_days)}
                 </span>
-                <span className="text-[12px] font-bold text-slate-500">hari</span>
+                <span className="text-[10px] sm:text-[12px] font-bold text-amber-600/70">hari</span>
               </div>
             </div>
-            <p className="text-[10.5px] text-slate-400 font-normal leading-tight mt-2">
-              Hari kerja seharusnya dalam sebulan
+            <p className="text-[9px] sm:text-[10.5px] text-slate-400 font-normal leading-tight mt-2">
+              Total hari libur
+            </p>
+          </div>
+
+          <div className="bg-white rounded-[20px] p-3 sm:p-4 border border-slate-200/80 shadow-[0_2px_12px_rgb(0,0,0,0.02)] flex flex-col justify-between">
+            <div>
+              <span className="text-[10px] sm:text-[11px] font-medium text-slate-500 block truncate">Hari Kerja</span>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-[20px] sm:text-[24px] font-black text-navy-950 leading-none tracking-tight">
+                  {stats.work_days}
+                </span>
+                <span className="text-[10px] sm:text-[12px] font-bold text-slate-500">hari</span>
+              </div>
+            </div>
+            <p className="text-[9px] sm:text-[10.5px] text-slate-400 font-normal leading-tight mt-2">
+              Hari kerja seharusnya
             </p>
           </div>
         </div>
