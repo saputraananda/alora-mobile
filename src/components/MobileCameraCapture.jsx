@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 function formatStamp(date) {
@@ -37,6 +37,19 @@ function LiveTimestamp({ align = 'left' }) {
   );
 }
 
+function gpsErrorMessage(err) {
+  switch (err?.code) {
+    case 1:
+      return 'Izin lokasi ditolak. Aktifkan izin lokasi untuk aplikasi ini.';
+    case 2:
+      return 'Sinyal GPS tidak tersedia. Pastikan lokasi HP aktif.';
+    case 3:
+      return 'GPS belum mendapat sinyal. Tekan Coba lagi.';
+    default:
+      return err?.message || 'Gagal mengambil lokasi GPS.';
+  }
+}
+
 export default function MobileCameraCapture({
   open,
   title = 'Ambil Foto',
@@ -48,16 +61,19 @@ export default function MobileCameraCapture({
   confirmLabel = 'Ambil Foto',
   locationDisplayMode = 'label',
   resolveLocationLabel = null,
+  onReloadLocationRules = null,
 }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
+  const hasFixRef = useRef(false);
   const [ready, setReady] = useState(false);
   const [camError, setCamError] = useState(null);
   const [facingMode, setFacingMode] = useState(initialFacingMode);
   const [gpsStatus, setGpsStatus] = useState('idle');
-  const [gpsMeta, setGpsMeta] = useState(null);
+  const [gpsCoords, setGpsCoords] = useState(null);
   const [gpsError, setGpsError] = useState('');
+  const [gpsRetryKey, setGpsRetryKey] = useState(0);
   const useLocationLabel = includeLocation && locationDisplayMode === 'label';
 
   useEffect(() => {
@@ -67,16 +83,19 @@ export default function MobileCameraCapture({
     setReady(false);
     setCamError(null);
     setGpsStatus(includeLocation ? 'loading' : 'idle');
-    setGpsMeta(null);
+    setGpsCoords(null);
     setGpsError('');
+    hasFixRef.current = false;
     return undefined;
   }, [open, initialFacingMode, includeLocation]);
 
+  // Quick cached fix first, then keep watching with high accuracy so a timeout
+  // or weak signal recovers on its own instead of staying failed.
   useEffect(() => {
     if (!open || !includeLocation) return undefined;
 
     let cancelled = false;
-    setGpsStatus('loading');
+    if (!hasFixRef.current) setGpsStatus('loading');
     setGpsError('');
 
     if (!navigator.geolocation) {
@@ -85,49 +104,73 @@ export default function MobileCameraCapture({
       return undefined;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        if (cancelled) return;
-        const latitude = pos.coords.latitude;
-        const longitude = pos.coords.longitude;
-        let locationName = null;
+    const onSuccess = (pos) => {
+      if (cancelled) return;
+      hasFixRef.current = true;
+      setGpsCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+      setGpsStatus('ready');
+      setGpsError('');
+    };
 
-        if (useLocationLabel) {
-          if (typeof resolveLocationLabel !== 'function') {
-            setGpsMeta(null);
-            setGpsStatus('error');
-            setGpsError('Aturan lokasi absensi belum siap.');
-            return;
-          }
-          locationName = resolveLocationLabel(latitude, longitude);
-          if (!locationName) {
-            setGpsMeta(null);
-            setGpsStatus('error');
-            setGpsError('Lokasi absensi belum siap.');
-            return;
-          }
-        }
+    const onError = (err) => {
+      if (cancelled) return;
+      // Keep the last good fix; the watch keeps trying in the background.
+      if (hasFixRef.current) return;
+      setGpsStatus('error');
+      setGpsError(gpsErrorMessage(err));
+    };
 
-        setGpsMeta({
-          latitude,
-          longitude,
-          locationName,
-        });
-        setGpsStatus('ready');
-      },
-      (err) => {
-        if (cancelled) return;
-        setGpsMeta(null);
-        setGpsStatus('error');
-        setGpsError(err?.message || 'Gagal mengambil lokasi GPS.');
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
+    navigator.geolocation.getCurrentPosition(onSuccess, () => {}, {
+      enableHighAccuracy: false,
+      timeout: 8000,
+      maximumAge: 30000,
+    });
+
+    const watchId = navigator.geolocation.watchPosition(onSuccess, onError, {
+      enableHighAccuracy: true,
+      timeout: 30000,
+      maximumAge: gpsRetryKey === 0 ? 10000 : 0,
+    });
 
     return () => {
       cancelled = true;
+      navigator.geolocation.clearWatch(watchId);
     };
-  }, [open, includeLocation, useLocationLabel, resolveLocationLabel]);
+  }, [open, includeLocation, gpsRetryKey]);
+
+  // Mobile browsers suspend geolocation watches while the PWA is in background.
+  useEffect(() => {
+    if (!open || !includeLocation) return undefined;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') setGpsRetryKey((k) => k + 1);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [open, includeLocation]);
+
+  // Derived, so the label appears as soon as location rules arrive without
+  // requesting GPS again.
+  const locationName = useMemo(() => {
+    if (!useLocationLabel || !gpsCoords || typeof resolveLocationLabel !== 'function') return null;
+    return resolveLocationLabel(gpsCoords.latitude, gpsCoords.longitude) || null;
+  }, [useLocationLabel, gpsCoords, resolveLocationLabel]);
+
+  const waitingForRules = useLocationLabel && Boolean(gpsCoords) && !locationName;
+
+  useEffect(() => {
+    if (open && waitingForRules && typeof onReloadLocationRules === 'function') {
+      onReloadLocationRules();
+    }
+  }, [open, waitingForRules, onReloadLocationRules]);
+
+  const gpsMeta = gpsCoords ? { ...gpsCoords, locationName } : null;
+  const gpsReady = gpsStatus === 'ready' && Boolean(gpsMeta) && !waitingForRules;
+
+  const retryGps = () => {
+    setGpsError('');
+    setGpsRetryKey((k) => k + 1);
+    if (typeof onReloadLocationRules === 'function') onReloadLocationRules();
+  };
 
   useEffect(() => {
     if (!open) return undefined;
@@ -193,15 +236,7 @@ export default function MobileCameraCapture({
     const canvas = canvasRef.current;
     if (!video || !canvas || !ready) return;
 
-    if (includeLocation && (gpsStatus !== 'ready' || !gpsMeta)) {
-      setGpsError(gpsError || 'Lokasi GPS wajib siap sebelum mengambil foto.');
-      return;
-    }
-
-    if (useLocationLabel && !gpsMeta?.locationName) {
-      setGpsError('Lokasi absensi belum siap sebelum mengambil foto.');
-      return;
-    }
+    if (includeLocation && !gpsReady) return;
 
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
@@ -275,15 +310,20 @@ export default function MobileCameraCapture({
     onClose?.();
   };
 
-  const captureDisabled =
-    !ready ||
-    Boolean(camError) ||
-    (includeLocation && gpsStatus !== 'ready') ||
-    (useLocationLabel && !gpsMeta?.locationName);
+  const captureDisabled = !ready || Boolean(camError) || (includeLocation && !gpsReady);
 
   const gpsReadyLabel = useLocationLabel
     ? `GPS siap · ${gpsMeta?.locationName || '-'}`
     : `GPS siap · ${formatCoord(gpsMeta?.latitude)}, ${formatCoord(gpsMeta?.longitude)}`;
+
+  const gpsVisualState = gpsReady ? 'ready' : gpsStatus === 'error' ? 'error' : 'loading';
+  const gpsStatusText = gpsReady
+    ? gpsReadyLabel
+    : gpsStatus === 'error'
+      ? `GPS gagal · ${gpsError || 'aktifkan izin lokasi'}`
+      : waitingForRules
+        ? 'GPS siap · memuat data lokasi kantor...'
+        : 'Mengambil lokasi GPS...';
 
   return createPortal(
     <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/70 px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 sm:p-4">
@@ -346,18 +386,14 @@ export default function MobileCameraCapture({
                   <div className="absolute top-12 left-3 right-3 text-[10.5px] font-semibold">
                     <div
                       className={`inline-flex max-w-full rounded-[8px] px-2.5 py-1.5 ${
-                        gpsStatus === 'ready'
+                        gpsVisualState === 'ready'
                           ? 'bg-navy-950 text-white'
-                          : gpsStatus === 'error'
+                          : gpsVisualState === 'error'
                             ? 'bg-rose-500/80 text-white'
                             : 'bg-black/55 text-white/85'
                       }`}
                     >
-                      {gpsStatus === 'ready'
-                        ? gpsReadyLabel
-                        : gpsStatus === 'error'
-                          ? `GPS gagal · ${gpsError || 'aktifkan izin lokasi'}`
-                          : 'Mengambil lokasi GPS...'}
+                      {gpsStatusText}
                     </div>
                   </div>
                 ) : null}
@@ -374,12 +410,17 @@ export default function MobileCameraCapture({
             Foto diambil langsung dari kamera dan akan otomatis diberi timestamp.
           </div>
           {includeLocation ? (
-            <div className="mt-2 text-[11px] font-semibold text-slate-600">
-              {gpsStatus === 'ready'
-                ? gpsReadyLabel
-                : gpsStatus === 'error'
-                  ? `GPS gagal · ${gpsError || 'aktifkan izin lokasi'}`
-                  : 'Mengambil lokasi GPS...'}
+            <div className="mt-2 flex items-center gap-2 text-[11px] font-semibold text-slate-600">
+              <span className="min-w-0 flex-1">{gpsStatusText}</span>
+              {!gpsReady ? (
+                <button
+                  type="button"
+                  onClick={retryGps}
+                  className="flex-shrink-0 h-[28px] px-2.5 rounded-[8px] border border-slate-200 bg-white text-navy-950 text-[11px] font-extrabold"
+                >
+                  Coba lagi
+                </button>
+              ) : null}
             </div>
           ) : null}
 
@@ -399,7 +440,7 @@ export default function MobileCameraCapture({
             >
               {!ready
                 ? 'Menyiapkan...'
-                : includeLocation && gpsStatus !== 'ready'
+                : includeLocation && !gpsReady
                   ? 'Menyiapkan GPS...'
                   : confirmLabel}
             </button>

@@ -107,10 +107,26 @@ export default function Absensi() {
     }
   }, []);
 
-  useEffect(() => {
-    const loadOffice = async () => {
-      try {
-        const { data } = await api.get('/attendance/location');
+  const loadOfficeInFlightRef = useRef(null);
+
+  // Retries on failure and is safe to call repeatedly (deduped while in flight).
+  // A failed load keeps the last good rules instead of wiping them.
+  const loadOffice = useCallback(() => {
+    if (loadOfficeInFlightRef.current) return loadOfficeInFlightRef.current;
+
+    const run = async () => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const { data } = await api.get('/attendance/location');
+          applyOfficeData(data);
+          return;
+        } catch {
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        }
+      }
+    };
+
+    const applyOfficeData = (data) => {
         let locations = [];
         if (Array.isArray(data?.locations)) {
           locations = data.locations
@@ -137,15 +153,27 @@ export default function Absensi() {
             radius_km: Number(data.radius_km) || DEFAULT_ABSEN_RADIUS_KM,
             locations,
           });
-        } else {
-          setAbsenOffice(null);
         }
-      } catch {
-        setAbsenOffice(null);
-      }
     };
-    loadOffice();
+
+    loadOfficeInFlightRef.current = run().finally(() => {
+      loadOfficeInFlightRef.current = null;
+    });
+    return loadOfficeInFlightRef.current;
   }, []);
+
+  useEffect(() => {
+    loadOffice();
+  }, [loadOffice]);
+
+  // PWA resumed from background: reload anything that may have failed meanwhile.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadOffice();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [loadOffice]);
 
   useEffect(() => {
     if (previewPhoto) {
@@ -199,8 +227,8 @@ export default function Absensi() {
   }, []);
 
   const handlePageRefresh = useCallback(async () => {
-    await Promise.all([fetchMonth(), fetchDayContext(), fetchTodayLeave()]);
-  }, [fetchMonth, fetchDayContext, fetchTodayLeave]);
+    await Promise.all([fetchMonth(), fetchDayContext(), fetchTodayLeave(), loadOffice()]);
+  }, [fetchMonth, fetchDayContext, fetchTodayLeave, loadOffice]);
 
   useEffect(() => {
     fetchDayContext();
@@ -1058,6 +1086,7 @@ export default function Absensi() {
         includeLocation
         locationDisplayMode="label"
         resolveLocationLabel={resolveLocationLabel}
+        onReloadLocationRules={loadOffice}
         onClose={() => {
           setCameraTarget(null);
           setPhotoAction(null);
