@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
-import sharp from 'sharp';
 import { aloraMobilePool, mainPool } from '../../db/pool.js';
 import { getBaseUploadDir } from '../../shared/upload.js';
 import { todayDateStringJakarta, toDateOnlyJakarta } from '../../shared/utils/workScheduleRules.js';
@@ -75,14 +74,6 @@ async function resolvePunchLocation(latitude, longitude) {
   };
 }
 
-async function compressToJpg(buffer) {
-  return sharp(buffer)
-    .rotate()
-    .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality: 82, mozjpeg: true })
-    .toBuffer();
-}
-
 function sessionPhotoFileName(employeeId, workDate, sessionType, fieldName) {
   return `${employeeId}_${workDate}_${sessionType}_${fieldName}.jpg`;
 }
@@ -90,8 +81,7 @@ function sessionPhotoFileName(employeeId, workDate, sessionType, fieldName) {
 async function saveSessionPhoto(employeeId, workDate, sessionType, fieldName, file) {
   const fileName = sessionPhotoFileName(employeeId, workDate, sessionType, fieldName);
   const filePath = path.join(SESSION_BASE, fileName);
-  const buffer = await compressToJpg(file.buffer);
-  fs.writeFileSync(filePath, buffer);
+  fs.writeFileSync(filePath, file.buffer);
   return {
     file: fileName,
     path: `/api/attendance-sessions/file/${fileName}`,

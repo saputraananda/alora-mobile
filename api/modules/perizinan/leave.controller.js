@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
-import sharp from 'sharp';
 import { aloraMobilePool, mainPool } from '../../db/pool.js';
 import { getBaseUploadDir } from '../../shared/upload.js';
 import {
@@ -77,21 +76,12 @@ function sanitizeName(value) {
     .slice(0, 80);
 }
 
-async function compressToJpg(buffer) {
-  return sharp(buffer)
-    .rotate()
-    .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality: 82, mozjpeg: true })
-    .toBuffer();
-}
-
 async function saveDoctorNote(employeeId, file) {
   const employeeSlug = sanitizeName(employeeId);
   const stamp = Date.now();
   const fileName = `${employeeSlug}_${stamp}_doctor_note.jpg`;
   const filePath = path.join(LEAVE_BASE, fileName);
-  const buffer = await compressToJpg(file.buffer);
-  fs.writeFileSync(filePath, buffer);
+  fs.writeFileSync(filePath, file.buffer);
   return {
     file: fileName,
     path: `/api/leave/doctor-notes/${fileName}`,

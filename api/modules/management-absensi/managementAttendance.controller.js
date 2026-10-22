@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
-import sharp from 'sharp';
 import { aloraMobilePool } from '../../db/pool.js';
 import { getBaseUploadDir } from '../../shared/upload.js';
 import { todayDateStringJakarta, toDateOnlyJakarta } from '../../shared/utils/workScheduleRules.js';
@@ -28,14 +27,6 @@ function todayDateString() {
 
 const toDateOnly = toDateOnlyJakarta;
 
-async function compressToJpg(buffer) {
-  return sharp(buffer)
-    .rotate()
-    .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality: 82, mozjpeg: true })
-    .toBuffer();
-}
-
 function attendancePhotoFileName(employeeId, attendanceDate, fieldName) {
   return `${employeeId}_${attendanceDate}_${fieldName}.jpg`;
 }
@@ -57,8 +48,7 @@ function unlinkAttendancePhoto(employeeId, attendanceDate, fieldName, storedPath
 async function savePhoto(employeeId, attendanceDate, fieldName, file) {
   const fileName = attendancePhotoFileName(employeeId, attendanceDate, fieldName);
   const filePath = path.join(ATTENDANCE_BASE, fileName);
-  const buffer = await compressToJpg(file.buffer);
-  fs.writeFileSync(filePath, buffer);
+  fs.writeFileSync(filePath, file.buffer);
   return {
     file: fileName,
     path: `/api/attendance/file/${fileName}`,
