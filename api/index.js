@@ -18,8 +18,18 @@ dotenv.config();
 
 const app = express();
 
+app.set('etag', false);
+
 app.use(cors());
 app.use(express.json());
+
+// Prevent browser/CDN from caching API responses (avoids HTTP 304 empty body issues)
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 
 // Mounted routes (public URL paths unchanged)
 app.use('/api/auth', loginRoutes);

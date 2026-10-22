@@ -148,14 +148,32 @@ export default function MobileCameraCapture({
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [open, includeLocation]);
 
+  const [rulesTimedOut, setRulesTimedOut] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setRulesTimedOut(false);
+    }
+  }, [open]);
+
   // Derived, so the label appears as soon as location rules arrive without
   // requesting GPS again.
-  const locationName = useMemo(() => {
+  const resolvedName = useMemo(() => {
     if (!useLocationLabel || !gpsCoords || typeof resolveLocationLabel !== 'function') return null;
     return resolveLocationLabel(gpsCoords.latitude, gpsCoords.longitude) || null;
   }, [useLocationLabel, gpsCoords, resolveLocationLabel]);
 
-  const waitingForRules = useLocationLabel && Boolean(gpsCoords) && !locationName;
+  // If rules are taking too long (>3.5s) while GPS fix is already acquired,
+  // fallback to coordinates so the user is never stuck on "Menyiapkan GPS...".
+  const waitingForRules = useLocationLabel && Boolean(gpsCoords) && !resolvedName && !rulesTimedOut;
+
+  useEffect(() => {
+    if (!open || !waitingForRules) return undefined;
+    const timer = setTimeout(() => {
+      setRulesTimedOut(true);
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [open, waitingForRules]);
 
   useEffect(() => {
     if (open && waitingForRules && typeof onReloadLocationRules === 'function') {
@@ -163,11 +181,18 @@ export default function MobileCameraCapture({
     }
   }, [open, waitingForRules, onReloadLocationRules]);
 
+  const locationName =
+    resolvedName ||
+    (rulesTimedOut && gpsCoords
+      ? `${formatCoord(gpsCoords.latitude)}, ${formatCoord(gpsCoords.longitude)}`
+      : null);
+
   const gpsMeta = gpsCoords ? { ...gpsCoords, locationName } : null;
-  const gpsReady = gpsStatus === 'ready' && Boolean(gpsMeta) && !waitingForRules;
+  const gpsReady = gpsStatus === 'ready' && Boolean(gpsCoords) && !waitingForRules;
 
   const retryGps = () => {
     setGpsError('');
+    setRulesTimedOut(false);
     setGpsRetryKey((k) => k + 1);
     if (typeof onReloadLocationRules === 'function') onReloadLocationRules();
   };

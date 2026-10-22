@@ -23,6 +23,7 @@ import AttendanceModeRequestPanel from '../components/AttendanceModeRequestPanel
 import OutsideNoteModal from '../components/OutsideNoteModal.jsx';
 import {
   DEFAULT_ABSEN_RADIUS_KM,
+  DEFAULT_OFFICE_LOCATIONS,
   INSIDE_LOCATION_LABEL,
   OUTSIDE_NORMAL_LABEL,
   UNRECORDED_LOCATION_LABEL,
@@ -34,11 +35,15 @@ import {
   mapItemToRecord,
   locationLabelClass,
 } from '../../../utils/attendanceDisplay.js';
-import { getAuthToken, getAuthUser } from '../../../utils/authSession.js';
+import { getAuthToken, getAuthUser, clearAuthSession } from '../../../utils/authSession.js';
 import PageHeaderRefreshButton from '../../../components/PageHeaderRefreshButton.jsx';
 
 const api = axios.create({
   baseURL: '/api',
+  headers: {
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+  },
 });
 
 api.interceptors.request.use((config) => {
@@ -48,6 +53,19 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      clearAuthSession();
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 async function fetchPhotoBlob(filePath) {
   return fetchAttendancePhotoBlob(api, filePath);
@@ -117,13 +135,21 @@ export default function Absensi() {
     const run = async () => {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-          const { data } = await api.get('/attendance/location');
-          applyOfficeData(data);
-          return;
-        } catch {
-          if (attempt < 2) await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+          const { data } = await api.get(`/attendance/location?_t=${Date.now()}`);
+          if (data && (Array.isArray(data.locations) || data.latitude)) {
+            applyOfficeData(data);
+            return;
+          }
+        } catch (err) {
+          if (err?.response?.status === 401) return;
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
         }
       }
+      // Fallback agar UI kamera tidak hang / freeze jika koneksi bermasalah
+      setAbsenOffice((prev) => prev || {
+        radius_km: DEFAULT_ABSEN_RADIUS_KM,
+        locations: DEFAULT_OFFICE_LOCATIONS,
+      });
     };
 
     const applyOfficeData = (data) => {

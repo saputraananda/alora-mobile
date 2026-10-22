@@ -3,6 +3,11 @@ export const OUTSIDE_LOCATION_LABEL = 'Lokasi diluar jangkauan';
 export const OUTSIDE_NORMAL_LABEL = 'Sedang di luar';
 export const UNRECORDED_LOCATION_LABEL = 'Lokasi belum tercatat';
 export const DEFAULT_ABSEN_RADIUS_KM = 0.05;
+export const DEFAULT_OFFICE_LOCATIONS = [
+  { location_name: 'HO Alora', latitude: -6.3983239, longitude: 106.8997063, is_office: true },
+  { location_name: 'IKM Pringgondani', latitude: -6.3848079, longitude: 106.8997077, is_office: true },
+  { location_name: 'IKM Kebayunan', latitude: -6.402972, longitude: 106.8915943, is_office: true },
+];
 
 function toRadians(value) {
   return (value * Math.PI) / 180;
