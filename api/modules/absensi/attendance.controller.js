@@ -1085,8 +1085,18 @@ export const getCutoffSummary = async (req, res) => {
             matchedDay = true;
             if (!processedLeaveUnpaidIds.has(l.id)) {
               processedLeaveUnpaidIds.add(l.id);
-              const h = Number(l.leave_duration_hours) || 4;
-              unpaidHourHalfDayM += hoursToMinutes(h);
+              const totalHours = Number(l.leave_duration_hours) || 4;
+              const roCovered = Number(l.funding_ro_hours || 0);
+              const otCovered = Number(l.funding_overtime_hours || 0);
+              const coveredHours = roCovered + otCovered;
+
+              const unpaidHours = l.funding_unpaid_hours != null
+                ? Math.max(0, Number(l.funding_unpaid_hours))
+                : Math.max(0, totalHours - coveredHours);
+
+              if (unpaidHours > 0) {
+                unpaidHourHalfDayM += hoursToMinutes(unpaidHours);
+              }
             }
           } else if (ltype === 'cuti') {
             cuti += 1;

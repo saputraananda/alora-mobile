@@ -427,7 +427,9 @@ export default function Absensi() {
       if (action === 'in') {
         setIntentError(msg);
         if (err.response?.status === 422 && /terlambat/i.test(msg)) {
-          setPunchContext((prev) => (prev ? { ...prev, is_late: true } : prev));
+          setPunchContext((prev) => (prev ? { ...prev, is_late: true } : { is_late: true }));
+          setIntentModalOpen(true);
+          return;
         }
       }
       if (action === 'out' && err.response?.status === 422 && /catatan/i.test(msg)) {
@@ -461,12 +463,44 @@ export default function Absensi() {
     }
   };
 
-  const prepareCheckIn = () => {
-    if (!pendingInFile || pendingInMeta?.latitude == null) {
+  const prepareCheckIn = async () => {
+    const meta = pendingInMeta;
+    if (!pendingInFile || meta?.latitude == null) {
       setActionError('Ambil foto dari kamera terlebih dahulu.');
       return;
     }
-    openIntentModal();
+
+    setActionLoading(true);
+    setActionError('');
+    setIntentError('');
+    try {
+      const { data } = await api.get('/attendance/punch-context', {
+        params: { latitude: meta.latitude, longitude: meta.longitude },
+      });
+      setPunchContext(data);
+
+      const needsIntentModal = Boolean(
+        data.is_off_day ||
+        data.approved_mode_request ||
+        data.is_late ||
+        data.outside_note_required ||
+        !data.inside_radius
+      );
+
+      if (needsIntentModal) {
+        setActionLoading(false);
+        setIntentModalOpen(true);
+      } else {
+        await submitPunch('in', {
+          ...(pendingLateFields || {}),
+          attendance_mode: 'regular',
+          mode_reason: '',
+        });
+      }
+    } catch (err) {
+      setActionLoading(false);
+      setActionError(err.response?.data?.message || 'Gagal memproses absensi.');
+    }
   };
 
   const handleIntentConfirm = ({ attendance_mode, mode_reason, late_reason, late_category, outside_note }) => {
