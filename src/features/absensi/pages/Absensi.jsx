@@ -11,6 +11,8 @@ import {
   Briefcase,
   CalendarDays,
   MapPin,
+  RotateCcw,
+  Trash2,
 } from 'lucide-react';
 import { formatName } from '../../../utils/FormatName.js';
 import { useDocumentTitle } from '../../../hooks/useDocumentTitle.js';
@@ -153,33 +155,33 @@ export default function Absensi() {
     };
 
     const applyOfficeData = (data) => {
-        let locations = [];
-        if (Array.isArray(data?.locations)) {
-          locations = data.locations
-            .map((loc) => ({
-              location_name: loc.location_name,
-              latitude: Number(loc.latitude),
-              longitude: Number(loc.longitude),
-              is_office: Boolean(loc.is_office),
-            }))
-            .filter((loc) => Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude));
-        } else if (
-          data &&
-          Number.isFinite(Number(data.latitude)) &&
-          Number.isFinite(Number(data.longitude))
-        ) {
-          locations = [{
-            location_name: INSIDE_LOCATION_LABEL,
-            latitude: Number(data.latitude),
-            longitude: Number(data.longitude),
-          }];
-        }
-        if (locations.length > 0) {
-          setAbsenOffice({
-            radius_km: Number(data.radius_km) || DEFAULT_ABSEN_RADIUS_KM,
-            locations,
-          });
-        }
+      let locations = [];
+      if (Array.isArray(data?.locations)) {
+        locations = data.locations
+          .map((loc) => ({
+            location_name: loc.location_name,
+            latitude: Number(loc.latitude),
+            longitude: Number(loc.longitude),
+            is_office: Boolean(loc.is_office),
+          }))
+          .filter((loc) => Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude));
+      } else if (
+        data &&
+        Number.isFinite(Number(data.latitude)) &&
+        Number.isFinite(Number(data.longitude))
+      ) {
+        locations = [{
+          location_name: INSIDE_LOCATION_LABEL,
+          latitude: Number(data.latitude),
+          longitude: Number(data.longitude),
+        }];
+      }
+      if (locations.length > 0) {
+        setAbsenOffice({
+          radius_km: Number(data.radius_km) || DEFAULT_ABSEN_RADIUS_KM,
+          locations,
+        });
+      }
     };
 
     loadOfficeInFlightRef.current = run().finally(() => {
@@ -775,9 +777,8 @@ export default function Absensi() {
                   key={s.id}
                   type="button"
                   onClick={() => setSegment(s.id)}
-                  className={`flex-1 flex flex-col items-center gap-1.5 p-2.5 rounded-[16px] border ${
-                    active ? s.active : 'bg-white border-slate-200 text-slate-500'
-                  }`}
+                  className={`flex-1 flex flex-col items-center gap-1.5 p-2.5 rounded-[16px] border ${active ? s.active : 'bg-white border-slate-200 text-slate-500'
+                    }`}
                 >
                   <div className={`w-9 h-9 rounded-[12px] grid place-items-center ${active ? s.iconBg : 'bg-slate-100 text-slate-500'}`}>
                     <Icon className="w-4 h-4" />
@@ -793,361 +794,371 @@ export default function Absensi() {
 
           {segment === 'absensi' && (
             <>
-            {(selectedRecord || selectedIsToday) ? (
-              <div className="bg-white rounded-[26px] border border-slate-200/80 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-5 flex flex-col gap-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">DETAIL ABSENSI</span>
-                    <h3 className="text-[15px] font-black text-navy-950 mt-0.5">{selectedDate} {MONTHS_ID[calMonth]} {calYear}</h3>
-                  </div>
-                  <span className={`px-3.5 py-1 rounded-full text-[11px] font-black border shadow-sm flex items-center gap-1.5 ${selectedRecord?.clockIn ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-slate-600 bg-slate-50 border-slate-200'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${selectedRecord?.clockIn ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                    {selectedRecord?.clockOut ? 'Hadir' : selectedRecord?.clockIn ? 'Hadir' : 'Belum Masuk'}
-                  </span>
-                </div>
-
-                {(selectedRecord?.modeLocationLabel || selectedRecord?.approvalPending || selectedRecord?.approvalStatus === 'Pending_Supervisor') && (
-                  <div className="flex flex-wrap gap-2">
-                    {selectedRecord?.modeLocationLabel ? (
-                      <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-bold text-blue-800">
-                        {selectedRecord.modeLocationLabel}
-                      </span>
-                    ) : null}
-                    {(selectedRecord?.approvalPending || selectedRecord?.approvalStatus === 'Pending_Supervisor') ? (
-                      <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-800">
-                        Menunggu persetujuan SPV
-                      </span>
-                    ) : null}
-                    {selectedRecord?.approvalStatus === 'disetujui' && selectedRecord?.attendanceMode !== 'regular' ? (
-                      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-800">
-                        Disetujui SPV
-                      </span>
-                    ) : null}
-                  </div>
-                )}
-
-                {selectedIsToday && isLockedByLeave && (
-                  <div className="rounded-[16px] border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12px] text-amber-800">
-                    <span className="font-bold">Absensi terkunci.</span>{' '}
-                    Ada cuti/izin seharian penuh yang sudah disetujui untuk hari ini
-                    {todayLeave?.leave_type ? ` (${todayLeave.leave_type})` : ''}.
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-slate-50 rounded-[18px] p-3.5 text-center border border-slate-100 flex flex-col items-center justify-center shadow-sm">
-                    <span className="text-[10px] text-slate-400 uppercase font-extrabold tracking-wider block">JAM MASUK</span>
-                    {selectedRecord?.clockIn ? (
-                      <span className="text-[15px] font-black text-emerald-600 font-mono mt-0.5 block">{selectedRecord.in}</span>
-                    ) : (
-                      <span className="text-[12px] font-bold text-slate-400 mt-0.5 block">Belum Masuk</span>
-                    )}
-                    {masukLocationText ? (
-                      <span className={locationLabelClass(masukLocationText)}>{masukLocationText}</span>
-                    ) : null}
-                  </div>
-                  <div className="bg-slate-50 rounded-[18px] p-3.5 text-center border border-slate-100 flex flex-col items-center justify-center shadow-sm">
-                    <span className="text-[10px] text-slate-400 uppercase font-extrabold tracking-wider block">JAM KELUAR</span>
-                    {selectedRecord?.clockOut ? (
-                      <span className="text-[15px] font-black text-blue-600 font-mono mt-0.5 block">{selectedRecord.out}</span>
-                    ) : (
-                      <span className="text-[12px] font-bold text-slate-400 mt-0.5 block">Belum Keluar</span>
-                    )}
-                    {keluarLocationText ? (
-                      <span className={locationLabelClass(keluarLocationText)}>{keluarLocationText}</span>
-                    ) : null}
-                  </div>
-                </div>
-
-                {selectedIsToday && (
-                  <div className="flex flex-col gap-2">
-                    {canCheckIn && (
-                      <>
-                        <button
-                          type="button"
-                          disabled={actionLoading}
-                          onClick={() => setCameraTarget({ key: 'check_in_photo', label: 'Foto Masuk' })}
-                          className="w-full py-3 rounded-[16px] border-2 border-dashed border-slate-300 text-navy-950 text-[13px] font-black disabled:opacity-60 flex items-center justify-center gap-1.5"
-                        >
-                          <Camera className="w-4 h-4" />
-                          {pendingInFile ? 'Ambil Ulang' : 'Ambil Foto Masuk'}
-                        </button>
-                        {pendingInPreviewUrl ? (
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={clearPendingIn}
-                              className="absolute right-2 top-2 z-[1] inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white"
-                              aria-label="Hapus foto masuk"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                            <img src={pendingInPreviewUrl} alt="Preview masuk" className="h-40 w-full object-cover rounded-[16px]" />
-                          </div>
-                        ) : null}
-                        {pendingInFile && (
-                          <button
-                            type="button"
-                            disabled={actionLoading}
-                            onClick={prepareCheckIn}
-                            className="w-full py-3 rounded-[16px] bg-navy-950 text-white text-[13px] font-black disabled:opacity-60 flex items-center justify-center gap-2"
-                          >
-                            {actionLoading ? 'Menyimpan absensi…' : actionError ? 'Coba Simpan Ulang' : 'Simpan Absen Masuk'}
-                          </button>
-                        )}
-                      </>
-                    )}
-                    {canCheckOut && (
-                      <>
-                        <button
-                          type="button"
-                          disabled={actionLoading}
-                          onClick={() => setCameraTarget({ key: 'check_out_photo', label: 'Foto Keluar' })}
-                          className="w-full py-3 rounded-[16px] border-2 border-dashed border-slate-300 text-navy-950 text-[13px] font-black disabled:opacity-60 flex items-center justify-center gap-1.5"
-                        >
-                          <Camera className="w-4 h-4" />
-                          {pendingOutFile ? 'Ambil Ulang' : 'Ambil Foto Keluar'}
-                        </button>
-                        {pendingOutPreviewUrl ? (
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={clearPendingOut}
-                              className="absolute right-2 top-2 z-[1] inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white"
-                              aria-label="Hapus foto keluar"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                            <img src={pendingOutPreviewUrl} alt="Preview keluar" className="h-40 w-full object-cover rounded-[16px]" />
-                          </div>
-                        ) : null}
-                        {pendingOutFile && (
-                          <button
-                            type="button"
-                            disabled={actionLoading}
-                            onClick={prepareCheckOut}
-                            className="w-full py-3 rounded-[16px] bg-navy-950 text-white text-[13px] font-black disabled:opacity-60 flex items-center justify-center gap-2"
-                          >
-                            {actionLoading ? 'Menyimpan absensi…' : actionError ? 'Coba Simpan Ulang' : 'Simpan Absen Keluar'}
-                          </button>
-                        )}
-                      </>
-                    )}
-                    {actionError && (
-                      <p className="text-[12px] font-bold text-red-600 text-center">{actionError}</p>
-                    )}
-                    <p className="text-[10px] text-slate-400 text-center font-medium">
-                      Foto + GPS wajib · di luar HO/IKM wajib isi catatan
-                    </p>
-                    <p className="text-[10px] text-slate-400 text-center font-medium">
-                      Ambil dari kamera, bukan dari galeri.
-                    </p>
-                  </div>
-                )}
-
-                {selectedIsToday && dayContext?.is_off_day && !selectedRecord?.clockIn && !isLockedByLeave && (
-                  <p className="text-[11px] text-amber-700 text-center">
-                    {dayContext?.approved_mode_request?.request_type === 'wod'
-                      ? 'Hari libur — mode WOD sudah disetujui, silakan absen masuk'
-                      : 'Hari libur — ajukan WOD di tab WOD dulu, setelah disetujui baru bisa absen'}
-                  </p>
-                )}
-
-                {selectedIsToday && dayContext?.approved_mode_request && !selectedRecord?.clockIn && (
-                  <div className="rounded-[16px] border border-violet-200 bg-violet-50 px-3.5 py-3 text-[12px] text-violet-900">
-                    Mode terkunci:{' '}
-                    <b>{String(dayContext.approved_mode_request.request_type).toUpperCase()}</b>
-                    {' '}— absensi hari ini mengikuti pengajuan yang disetujui.
-                  </div>
-                )}
-
-                <div className="flex flex-col gap-2.5 pt-2 border-t border-slate-100">
-                  <div className="flex items-center gap-1.5">
-                    <Camera className="w-4 h-4 text-navy-950" />
-                    <span className="text-[11px] font-extrabold text-navy-950 uppercase tracking-wider">
-                      DOKUMENTASI
+              {(selectedRecord || selectedIsToday) ? (
+                <div className="bg-white rounded-[26px] border border-slate-200/80 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-5 flex flex-col gap-4">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">DETAIL ABSENSI</span>
+                      <h3 className="text-[15px] font-black text-navy-950 mt-0.5">{selectedDate} {MONTHS_ID[calMonth]} {calYear}</h3>
+                    </div>
+                    <span className={`px-3.5 py-1 rounded-full text-[11px] font-black border shadow-sm flex items-center gap-1.5 ${selectedRecord?.clockIn ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-slate-600 bg-slate-50 border-slate-200'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${selectedRecord?.clockIn ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                      {selectedRecord?.clockOut ? 'Hadir' : selectedRecord?.clockIn ? 'Hadir' : 'Belum Masuk'}
                     </span>
                   </div>
+
+                  {(selectedRecord?.modeLocationLabel || selectedRecord?.approvalPending || selectedRecord?.approvalStatus === 'Pending_Supervisor') && (
+                    <div className="flex flex-wrap gap-2">
+                      {selectedRecord?.modeLocationLabel ? (
+                        <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-bold text-blue-800">
+                          {selectedRecord.modeLocationLabel}
+                        </span>
+                      ) : null}
+                      {(selectedRecord?.approvalPending || selectedRecord?.approvalStatus === 'Pending_Supervisor') ? (
+                        <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-800">
+                          Menunggu persetujuan SPV
+                        </span>
+                      ) : null}
+                      {selectedRecord?.approvalStatus === 'disetujui' && selectedRecord?.attendanceMode !== 'regular' ? (
+                        <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-800">
+                          Disetujui SPV
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
+
+                  {selectedIsToday && isLockedByLeave && (
+                    <div className="rounded-[16px] border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12px] text-amber-800">
+                      <span className="font-bold">Absensi terkunci.</span>{' '}
+                      Ada cuti/izin seharian penuh yang sudah disetujui untuk hari ini
+                      {todayLeave?.leave_type ? ` (${todayLeave.leave_type})` : ''}.
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-3">
-                    {photoBlobs.masuk ? (
-                      <div
-                        onClick={() => setPreviewPhoto({
-                          url: photoBlobs.masuk,
-                          title: 'Foto Presensi Masuk',
-                          time: selectedRecord?.in,
-                          date: `${selectedDate} ${MONTHS_ID[calMonth]} ${calYear}`
-                        })}
-                        className="flex flex-col gap-1.5 cursor-pointer group"
-                      >
-                        <div className="relative aspect-[4/3] rounded-[20px] overflow-hidden bg-slate-100 border border-slate-200/80 shadow-sm">
-                          <img src={photoBlobs.masuk} alt="Foto Masuk" className="w-full h-full object-cover" />
-                          <span className="absolute bottom-2 left-2 px-2.5 py-0.5 rounded-lg bg-navy-950/80 text-[9.5px] font-extrabold text-white font-mono">
-                            {selectedRecord?.in}
-                          </span>
-                        </div>
-                        <span className="text-[11px] font-bold text-center text-emerald-700">Foto Masuk</span>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-1.5">
-                        <div className="aspect-[4/3] rounded-[20px] bg-slate-50 border border-dashed border-slate-200 flex flex-col items-center justify-center p-3 text-center gap-1">
-                          <CameraOff className="w-5 h-5 text-slate-300" />
-                          <span className="text-[10px] font-bold text-slate-400">Belum ada Foto Masuk</span>
-                        </div>
-                        <span className="text-[11px] font-bold text-center text-slate-400">Foto Masuk</span>
-                      </div>
-                    )}
-                    {photoBlobs.keluar ? (
-                      <div
-                        onClick={() => setPreviewPhoto({
-                          url: photoBlobs.keluar,
-                          title: 'Foto Presensi Keluar',
-                          time: selectedRecord?.out,
-                          date: `${selectedDate} ${MONTHS_ID[calMonth]} ${calYear}`
-                        })}
-                        className="flex flex-col gap-1.5 cursor-pointer group"
-                      >
-                        <div className="relative aspect-[4/3] rounded-[20px] overflow-hidden bg-slate-100 border border-slate-200/80 shadow-sm">
-                          <img src={photoBlobs.keluar} alt="Foto Keluar" className="w-full h-full object-cover" />
-                          <span className="absolute bottom-2 left-2 px-2.5 py-0.5 rounded-lg bg-navy-950/80 text-[9.5px] font-extrabold text-white font-mono">
-                            {selectedRecord?.out}
-                          </span>
-                        </div>
-                        <span className="text-[11px] font-bold text-center text-blue-700">Foto Keluar</span>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-1.5">
-                        <div className="aspect-[4/3] rounded-[20px] bg-slate-50 border border-dashed border-slate-200 flex flex-col items-center justify-center p-3 text-center gap-1">
-                          <CameraOff className="w-5 h-5 text-slate-300" />
-                          <span className="text-[10px] font-bold text-slate-400">Belum ada Foto Keluar</span>
-                        </div>
-                        <span className="text-[11px] font-bold text-center text-slate-400">Foto Keluar</span>
-                      </div>
-                    )}
+                    <div className="bg-slate-50 rounded-[18px] p-3.5 text-center border border-slate-100 flex flex-col items-center justify-center shadow-sm">
+                      <span className="text-[10px] text-slate-400 uppercase font-extrabold tracking-wider block">JAM MASUK</span>
+                      {selectedRecord?.clockIn ? (
+                        <span className="text-[15px] font-black text-emerald-600 font-mono mt-0.5 block">{selectedRecord.in}</span>
+                      ) : (
+                        <span className="text-[12px] font-bold text-slate-400 mt-0.5 block">Belum Masuk</span>
+                      )}
+                      {masukLocationText ? (
+                        <span className={locationLabelClass(masukLocationText)}>{masukLocationText}</span>
+                      ) : null}
+                    </div>
+                    <div className="bg-slate-50 rounded-[18px] p-3.5 text-center border border-slate-100 flex flex-col items-center justify-center shadow-sm">
+                      <span className="text-[10px] text-slate-400 uppercase font-extrabold tracking-wider block">JAM KELUAR</span>
+                      {selectedRecord?.clockOut ? (
+                        <span className="text-[15px] font-black text-blue-600 font-mono mt-0.5 block">{selectedRecord.out}</span>
+                      ) : (
+                        <span className="text-[12px] font-bold text-slate-400 mt-0.5 block">Belum Keluar</span>
+                      )}
+                      {keluarLocationText ? (
+                        <span className={locationLabelClass(keluarLocationText)}>{keluarLocationText}</span>
+                      ) : null}
+                    </div>
                   </div>
-                  {selectedIsToday && (selectedRecord?.clockIn || selectedRecord?.clockOut) ? (
+
+                  {selectedIsToday && (
+                    <div className="flex flex-col gap-2">
+                      {canCheckIn && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={actionLoading}
+                            onClick={() => setCameraTarget({ key: 'check_in_photo', label: 'Foto Masuk' })}
+                            className="w-full py-3 rounded-[16px] border-2 border-dashed border-slate-300 text-navy-950 text-[13px] font-black disabled:opacity-60 flex items-center justify-center gap-1.5"
+                          >
+                            <Camera className="w-4 h-4" />
+                            {pendingInFile ? 'Ambil Ulang' : 'Ambil Foto Masuk'}
+                          </button>
+                          {pendingInPreviewUrl ? (
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={clearPendingIn}
+                                className="absolute right-2 top-2 z-[1] inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white"
+                                aria-label="Hapus foto masuk"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                              <img src={pendingInPreviewUrl} alt="Preview masuk" className="h-40 w-full object-cover rounded-[16px]" />
+                            </div>
+                          ) : null}
+                          {pendingInFile && (
+                            <button
+                              type="button"
+                              disabled={actionLoading}
+                              onClick={prepareCheckIn}
+                              className="w-full py-3 rounded-[16px] bg-navy-950 text-white text-[13px] font-black disabled:opacity-60 flex items-center justify-center gap-2"
+                            >
+                              {actionLoading ? 'Menyimpan absensi…' : actionError ? 'Coba Simpan Ulang' : 'Simpan Absen Masuk'}
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {canCheckOut && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={actionLoading}
+                            onClick={() => setCameraTarget({ key: 'check_out_photo', label: 'Foto Keluar' })}
+                            className="w-full py-3 rounded-[16px] border-2 border-dashed border-slate-300 text-navy-950 text-[13px] font-black disabled:opacity-60 flex items-center justify-center gap-1.5"
+                          >
+                            <Camera className="w-4 h-4" />
+                            {pendingOutFile ? 'Ambil Ulang' : 'Ambil Foto Keluar'}
+                          </button>
+                          {pendingOutPreviewUrl ? (
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={clearPendingOut}
+                                className="absolute right-2 top-2 z-[1] inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white"
+                                aria-label="Hapus foto keluar"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                              <img src={pendingOutPreviewUrl} alt="Preview keluar" className="h-40 w-full object-cover rounded-[16px]" />
+                            </div>
+                          ) : null}
+                          {pendingOutFile && (
+                            <button
+                              type="button"
+                              disabled={actionLoading}
+                              onClick={prepareCheckOut}
+                              className="w-full py-3 rounded-[16px] bg-navy-950 text-white text-[13px] font-black disabled:opacity-60 flex items-center justify-center gap-2"
+                            >
+                              {actionLoading ? 'Menyimpan absensi…' : actionError ? 'Coba Simpan Ulang' : 'Simpan Absen Keluar'}
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {actionError && (
+                        <p className="text-[12px] font-bold text-red-600 text-center">{actionError}</p>
+                      )}
+                      <p className="text-[10px] text-slate-400 text-center font-medium">
+                        Foto + GPS wajib · di luar HO/IKM wajib isi catatan
+                      </p>
+                      <p className="text-[10px] text-slate-400 text-center font-medium">
+                        Ambil dari kamera, bukan dari galeri.
+                      </p>
+                    </div>
+                  )}
+
+                  {selectedIsToday && dayContext?.is_off_day && !selectedRecord?.clockIn && !isLockedByLeave && (
+                    <p className="text-[11px] text-amber-700 text-center">
+                      {dayContext?.approved_mode_request?.request_type === 'wod'
+                        ? 'Hari libur — mode WOD sudah disetujui, silakan absen masuk'
+                        : 'Hari libur — ajukan WOD di tab WOD dulu, setelah disetujui baru bisa absen'}
+                    </p>
+                  )}
+
+                  {selectedIsToday && dayContext?.approved_mode_request && !selectedRecord?.clockIn && (
+                    <div className="rounded-[16px] border border-violet-200 bg-violet-50 px-3.5 py-3 text-[12px] text-violet-900">
+                      Mode terkunci:{' '}
+                      <b>{String(dayContext.approved_mode_request.request_type).toUpperCase()}</b>
+                      {' '}— absensi hari ini mengikuti pengajuan yang disetujui.
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-2.5 pt-2 border-t border-slate-100">
+                    <div className="flex items-center gap-1.5">
+                      <Camera className="w-4 h-4 text-navy-950" />
+                      <span className="text-[11px] font-extrabold text-navy-950 uppercase tracking-wider">
+                        DOKUMENTASI
+                      </span>
+                    </div>
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="flex flex-col gap-1.5">
-                        {selectedRecord?.clockIn && selectedRecord?.fotoMasukPath ? (
-                          <div className="flex items-center justify-center gap-3">
+                      {photoBlobs.masuk ? (
+                        <div
+                          onClick={() => setPreviewPhoto({
+                            url: photoBlobs.masuk,
+                            title: 'Foto Presensi Masuk',
+                            time: selectedRecord?.in,
+                            date: `${selectedDate} ${MONTHS_ID[calMonth]} ${calYear}`
+                          })}
+                          className="flex flex-col gap-1.5 cursor-pointer group"
+                        >
+                          <div className="relative aspect-[4/3] rounded-[20px] overflow-hidden bg-slate-100 border border-slate-200/80 shadow-sm">
+                            <img src={photoBlobs.masuk} alt="Foto Masuk" className="w-full h-full object-cover" />
+                            <span className="absolute bottom-2 left-2 px-2.5 py-0.5 rounded-lg bg-navy-950/80 text-[9.5px] font-extrabold text-white font-mono">
+                              {selectedRecord?.in}
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-bold text-center text-emerald-700">Foto Masuk</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-1.5">
+                          <div className="aspect-[4/3] rounded-[20px] bg-slate-50 border border-dashed border-slate-200 flex flex-col items-center justify-center p-3 text-center gap-1">
+                            <CameraOff className="w-5 h-5 text-slate-300" />
+                            <span className="text-[10px] font-bold text-slate-400">Belum ada Foto Masuk</span>
+                          </div>
+                          <span className="text-[11px] font-bold text-center text-slate-400">Foto Masuk</span>
+                        </div>
+                      )}
+                      {photoBlobs.keluar ? (
+                        <div
+                          onClick={() => setPreviewPhoto({
+                            url: photoBlobs.keluar,
+                            title: 'Foto Presensi Keluar',
+                            time: selectedRecord?.out,
+                            date: `${selectedDate} ${MONTHS_ID[calMonth]} ${calYear}`
+                          })}
+                          className="flex flex-col gap-1.5 cursor-pointer group"
+                        >
+                          <div className="relative aspect-[4/3] rounded-[20px] overflow-hidden bg-slate-100 border border-slate-200/80 shadow-sm">
+                            <img src={photoBlobs.keluar} alt="Foto Keluar" className="w-full h-full object-cover" />
+                            <span className="absolute bottom-2 left-2 px-2.5 py-0.5 rounded-lg bg-navy-950/80 text-[9.5px] font-extrabold text-white font-mono">
+                              {selectedRecord?.out}
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-bold text-center text-blue-700">Foto Keluar</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-1.5">
+                          <div className="aspect-[4/3] rounded-[20px] bg-slate-50 border border-dashed border-slate-200 flex flex-col items-center justify-center p-3 text-center gap-1">
+                            <CameraOff className="w-5 h-5 text-slate-300" />
+                            <span className="text-[10px] font-bold text-slate-400">Belum ada Foto Keluar</span>
+                          </div>
+                          <span className="text-[11px] font-bold text-center text-slate-400">Foto Keluar</span>
+                        </div>
+                      )}
+                    </div>
+                    {selectedIsToday && (selectedRecord?.clockIn || selectedRecord?.clockOut) ? (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1.5">
+                          {selectedRecord?.clockIn && selectedRecord?.fotoMasukPath ? (
+                            <div className="flex items-center justify-center gap-2 mt-0.5">
+                              <button
+                                type="button"
+                                disabled={photoManageLoading}
+                                onClick={() => setPhotoAction('in')}
+                                className="w-8 h-8 rounded-[11px] bg-slate-100 hover:bg-slate-200 border border-slate-200/80 text-navy-950 grid place-items-center active:scale-95 transition disabled:opacity-50 shadow-xs"
+                                title="Ambil ulang foto masuk"
+                                aria-label="Ambil ulang foto masuk"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={photoManageLoading}
+                                onClick={() => setConfirmDelete('in')}
+                                className="w-8 h-8 rounded-[11px] bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 grid place-items-center active:scale-95 transition disabled:opacity-50 shadow-xs"
+                                title="Hapus foto masuk"
+                                aria-label="Hapus foto masuk"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : null}
+                          {selectedRecord?.clockIn && !selectedRecord?.fotoMasukPath ? (
                             <button
                               type="button"
                               disabled={photoManageLoading}
                               onClick={() => setPhotoAction('in')}
-                              className="text-[12px] font-bold text-navy-950"
+                              className="w-full py-2 rounded-[12px] bg-navy-950 text-white text-[12px] font-bold disabled:opacity-60 flex items-center justify-center gap-1.5"
                             >
-                              Ambil ulang
+                              <Camera className="w-3.5 h-3.5" />
+                              <span>Ambil foto masuk</span>
                             </button>
+                          ) : null}
+                          {pendingReplaceInPreviewUrl ? (
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={clearReplaceIn}
+                                className="absolute right-2 top-2 z-[1] inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white"
+                                aria-label="Hapus preview foto masuk"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                              <img src={pendingReplaceInPreviewUrl} alt="Preview ganti masuk" className="h-40 w-full object-cover rounded-[16px]" />
+                            </div>
+                          ) : null}
+                          {pendingReplaceInFile ? (
                             <button
                               type="button"
                               disabled={photoManageLoading}
-                              onClick={() => setConfirmDelete('in')}
-                              className="text-[12px] font-bold text-rose-600"
+                              onClick={() => submitReplacePhoto('in')}
+                              className="w-full py-2 rounded-[12px] bg-navy-950 text-white text-[12px] font-bold disabled:opacity-60"
                             >
-                              Hapus
+                              {photoManageLoading ? 'Mengirim…' : 'Simpan foto'}
                             </button>
-                          </div>
-                        ) : null}
-                        {selectedRecord?.clockIn && !selectedRecord?.fotoMasukPath ? (
-                          <button
-                            type="button"
-                            disabled={photoManageLoading}
-                            onClick={() => setPhotoAction('in')}
-                            className="text-[12px] font-bold text-navy-950"
-                          >
-                            Ambil foto masuk
-                          </button>
-                        ) : null}
-                        {pendingReplaceInPreviewUrl ? (
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={clearReplaceIn}
-                              className="absolute right-2 top-2 z-[1] inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white"
-                              aria-label="Hapus preview foto masuk"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                            <img src={pendingReplaceInPreviewUrl} alt="Preview ganti masuk" className="h-40 w-full object-cover rounded-[16px]" />
-                          </div>
-                        ) : null}
-                        {pendingReplaceInFile ? (
-                          <button
-                            type="button"
-                            disabled={photoManageLoading}
-                            onClick={() => submitReplacePhoto('in')}
-                            className="w-full py-2 rounded-[12px] bg-navy-950 text-white text-[12px] font-bold disabled:opacity-60"
-                          >
-                            {photoManageLoading ? 'Mengirim…' : 'Simpan foto'}
-                          </button>
-                        ) : null}
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        {selectedRecord?.clockOut && selectedRecord?.fotoKeluarPath ? (
-                          <div className="flex items-center justify-center gap-3">
+                          ) : null}
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          {selectedRecord?.clockOut && selectedRecord?.fotoKeluarPath ? (
+                            <div className="flex items-center justify-center gap-2 mt-0.5">
+                              <button
+                                type="button"
+                                disabled={photoManageLoading}
+                                onClick={() => setPhotoAction('out')}
+                                className="w-8 h-8 rounded-[11px] bg-slate-100 hover:bg-slate-200 border border-slate-200/80 text-navy-950 grid place-items-center active:scale-95 transition disabled:opacity-50 shadow-xs"
+                                title="Ambil ulang foto keluar"
+                                aria-label="Ambil ulang foto keluar"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={photoManageLoading}
+                                onClick={() => setConfirmDelete('out')}
+                                className="w-8 h-8 rounded-[11px] bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 grid place-items-center active:scale-95 transition disabled:opacity-50 shadow-xs"
+                                title="Hapus foto keluar"
+                                aria-label="Hapus foto keluar"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : null}
+                          {selectedRecord?.clockOut && !selectedRecord?.fotoKeluarPath ? (
                             <button
                               type="button"
                               disabled={photoManageLoading}
                               onClick={() => setPhotoAction('out')}
-                              className="text-[12px] font-bold text-navy-950"
+                              className="w-full py-2 rounded-[12px] bg-navy-950 text-white text-[12px] font-bold disabled:opacity-60 flex items-center justify-center gap-1.5"
                             >
-                              Ambil ulang
+                              <Camera className="w-3.5 h-3.5" />
+                              <span>Ambil foto keluar</span>
                             </button>
+                          ) : null}
+                          {pendingReplaceOutPreviewUrl ? (
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={clearReplaceOut}
+                                className="absolute right-2 top-2 z-[1] inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white"
+                                aria-label="Hapus preview foto keluar"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                              <img src={pendingReplaceOutPreviewUrl} alt="Preview ganti keluar" className="h-40 w-full object-cover rounded-[16px]" />
+                            </div>
+                          ) : null}
+                          {pendingReplaceOutFile ? (
                             <button
                               type="button"
                               disabled={photoManageLoading}
-                              onClick={() => setConfirmDelete('out')}
-                              className="text-[12px] font-bold text-rose-600"
+                              onClick={() => submitReplacePhoto('out')}
+                              className="w-full py-2 rounded-[12px] bg-navy-950 text-white text-[12px] font-bold disabled:opacity-60"
                             >
-                              Hapus
+                              {photoManageLoading ? 'Mengirim…' : 'Simpan foto'}
                             </button>
-                          </div>
-                        ) : null}
-                        {selectedRecord?.clockOut && !selectedRecord?.fotoKeluarPath ? (
-                          <button
-                            type="button"
-                            disabled={photoManageLoading}
-                            onClick={() => setPhotoAction('out')}
-                            className="text-[12px] font-bold text-navy-950"
-                          >
-                            Ambil foto keluar
-                          </button>
-                        ) : null}
-                        {pendingReplaceOutPreviewUrl ? (
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={clearReplaceOut}
-                              className="absolute right-2 top-2 z-[1] inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white"
-                              aria-label="Hapus preview foto keluar"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                            <img src={pendingReplaceOutPreviewUrl} alt="Preview ganti keluar" className="h-40 w-full object-cover rounded-[16px]" />
-                          </div>
-                        ) : null}
-                        {pendingReplaceOutFile ? (
-                          <button
-                            type="button"
-                            disabled={photoManageLoading}
-                            onClick={() => submitReplacePhoto('out')}
-                            className="w-full py-2 rounded-[12px] bg-navy-950 text-white text-[12px] font-bold disabled:opacity-60"
-                          >
-                            {photoManageLoading ? 'Mengirim…' : 'Simpan foto'}
-                          </button>
-                        ) : null}
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                  ) : null}
-                  {photoManageError ? (
-                    <p className="text-[12px] font-bold text-red-600 text-center">{photoManageError}</p>
-                  ) : null}
+                    ) : null}
+                    {photoManageError ? (
+                      <p className="text-[12px] font-bold text-red-600 text-center">{photoManageError}</p>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="bg-white rounded-[22px] border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] p-4 text-center">
-                <span className="text-[12px] text-slate-400 font-bold">Tidak ada data absensi untuk tanggal ini.</span>
-              </div>
-            )}
+              ) : (
+                <div className="bg-white rounded-[22px] border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] p-4 text-center">
+                  <span className="text-[12px] text-slate-400 font-bold">Tidak ada data absensi untuk tanggal ini.</span>
+                </div>
+              )}
             </>
           )}
         </div>
