@@ -364,9 +364,16 @@ export default function Absensi() {
     };
   }, []);
 
-  const submitPunch = async (action, lateFields = null, todoItems = null, outsideNote = null) => {
-    const file = action === 'in' ? pendingInFile : pendingOutFile;
-    const meta = action === 'in' ? pendingInMeta : pendingOutMeta;
+  const submitPunch = async (
+    action,
+    lateFields = null,
+    todoItems = null,
+    outsideNote = null,
+    fileOverride = null,
+    metaOverride = null
+  ) => {
+    const file = fileOverride || (action === 'in' ? pendingInFile : pendingOutFile);
+    const meta = metaOverride || (action === 'in' ? pendingInMeta : pendingOutMeta);
     if (!file || meta?.latitude == null || meta?.longitude == null) {
       setActionError('Ambil foto dari kamera terlebih dahulu.');
       return;
@@ -523,7 +530,7 @@ export default function Absensi() {
       setSessionTodoTarget('wod');
       return;
     }
-    if (isRegularPunch && pendingOutMeta?.locationName === OUTSIDE_NORMAL_LABEL) {
+    if (isRegularPunch && (pendingOutMeta?.locationName === OUTSIDE_NORMAL_LABEL || pendingOutMeta?.locationName === OUTSIDE_LOCATION_LABEL)) {
       setOutsideNoteError('');
       setOutsideNoteOpen(true);
       return;
@@ -551,8 +558,22 @@ export default function Absensi() {
         return file ? URL.createObjectURL(file) : '';
       });
       setLiveLocationLabel(meta?.locationName || '');
+
+      if (!file || meta?.latitude == null || meta?.longitude == null) return;
+
+      if (dayContext?.attendance?.attendance_mode === 'wod') {
+        setSessionTodoTarget('wod');
+        return;
+      }
+      if (isRegularPunch && (meta?.locationName === OUTSIDE_NORMAL_LABEL || meta?.locationName === OUTSIDE_LOCATION_LABEL)) {
+        setOutsideNoteError('');
+        setOutsideNoteOpen(true);
+        return;
+      }
+      submitPunch('out', null, null, null, file, meta);
       return;
     }
+
     if (key === 'check_in_photo') {
       setPendingInFile(file || null);
       setPendingInMeta(meta || null);
@@ -561,6 +582,50 @@ export default function Absensi() {
         return file ? URL.createObjectURL(file) : '';
       });
       setLiveLocationLabel(meta?.locationName || '');
+
+      if (!file || meta?.latitude == null || meta?.longitude == null) return;
+
+      (async () => {
+        setActionLoading(true);
+        setActionError('');
+        setLateModalError('');
+        setIntentError('');
+        try {
+          const { data } = await api.get('/attendance/punch-context', {
+            params: { latitude: meta.latitude, longitude: meta.longitude },
+          });
+          setPunchContext(data);
+
+          const needsIntentModal = Boolean(
+            data.is_off_day ||
+            data.approved_mode_request ||
+            data.is_late ||
+            data.outside_note_required ||
+            !data.inside_radius
+          );
+
+          if (needsIntentModal) {
+            setActionLoading(false);
+            setIntentModalOpen(true);
+          } else {
+            await submitPunch(
+              'in',
+              {
+                ...(pendingLateFields || {}),
+                attendance_mode: 'regular',
+                mode_reason: '',
+              },
+              null,
+              null,
+              file,
+              meta
+            );
+          }
+        } catch (err) {
+          setActionLoading(false);
+          setActionError(err.response?.data?.message || 'Gagal memproses absensi.');
+        }
+      })();
     }
   };
 
@@ -820,14 +885,16 @@ export default function Absensi() {
                             <img src={pendingInPreviewUrl} alt="Preview masuk" className="h-40 w-full object-cover rounded-[16px]" />
                           </div>
                         ) : null}
-                        <button
-                          type="button"
-                          disabled={!pendingInFile || actionLoading}
-                          onClick={prepareCheckIn}
-                          className="w-full py-3 rounded-[16px] bg-navy-950 text-white text-[13px] font-black disabled:opacity-60"
-                        >
-                          {actionLoading ? 'Mengirim…' : 'Simpan Absen Masuk'}
-                        </button>
+                        {pendingInFile && (
+                          <button
+                            type="button"
+                            disabled={actionLoading}
+                            onClick={prepareCheckIn}
+                            className="w-full py-3 rounded-[16px] bg-navy-950 text-white text-[13px] font-black disabled:opacity-60 flex items-center justify-center gap-2"
+                          >
+                            {actionLoading ? 'Menyimpan absensi…' : actionError ? 'Coba Simpan Ulang' : 'Simpan Absen Masuk'}
+                          </button>
+                        )}
                       </>
                     )}
                     {canCheckOut && (
@@ -854,14 +921,16 @@ export default function Absensi() {
                             <img src={pendingOutPreviewUrl} alt="Preview keluar" className="h-40 w-full object-cover rounded-[16px]" />
                           </div>
                         ) : null}
-                        <button
-                          type="button"
-                          disabled={!pendingOutFile || actionLoading}
-                          onClick={prepareCheckOut}
-                          className="w-full py-3 rounded-[16px] bg-navy-950 text-white text-[13px] font-black disabled:opacity-60"
-                        >
-                          {actionLoading ? 'Mengirim…' : 'Simpan Absen Keluar'}
-                        </button>
+                        {pendingOutFile && (
+                          <button
+                            type="button"
+                            disabled={actionLoading}
+                            onClick={prepareCheckOut}
+                            className="w-full py-3 rounded-[16px] bg-navy-950 text-white text-[13px] font-black disabled:opacity-60 flex items-center justify-center gap-2"
+                          >
+                            {actionLoading ? 'Menyimpan absensi…' : actionError ? 'Coba Simpan Ulang' : 'Simpan Absen Keluar'}
+                          </button>
+                        )}
                       </>
                     )}
                     {actionError && (
