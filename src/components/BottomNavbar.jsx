@@ -1,19 +1,57 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, History, User } from 'lucide-react';
+import { Home, Users, History, User } from 'lucide-react';
+import axios from 'axios';
+import { getAuthToken } from '../utils/authSession.js';
 
 /**
  * Bottom Navigation Bar Component
- * 3 Tabs: Home, Riwayat, Profile
+ * Tabs: Home, [Tim jika SPV], Riwayat, Profile
  */
 export default function BottomNavbar() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const [isSpvUser, setIsSpvUser] = useState(() => {
+    try {
+      return sessionStorage.getItem('alora_is_spv') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const token = getAuthToken();
+    if (!token) return;
+
+    let cancelled = false;
+    axios.get('/api/approvals/capability', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then((res) => {
+        if (cancelled) return;
+        const canSpv = Boolean(res.data?.is_spv || res.data?.can_access);
+        setIsSpvUser(canSpv);
+        try {
+          sessionStorage.setItem('alora_is_spv', canSpv ? '1' : '0');
+        } catch {
+          // ignore
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname]);
+
   // Hide bottom navbar on login page and tracking
   if (location.pathname === '/login') {
     return null;
   }
+
+  // Tampilkan tab Tim jika user terdeteksi sebagai SPV atau sedang berada di rute /tim
+  const showTimTab = isSpvUser || location.pathname === '/tim';
 
   const navItems = [
     {
@@ -22,6 +60,16 @@ export default function BottomNavbar() {
       path: '/',
       icon: Home
     },
+    ...(showTimTab
+      ? [
+          {
+            id: 'tim',
+            label: 'Tim',
+            path: '/tim',
+            icon: Users
+          }
+        ]
+      : []),
     {
       id: 'riwayat',
       label: 'Riwayat',

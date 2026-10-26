@@ -13,6 +13,7 @@ import attendanceSessionRoutes from './modules/absensi/attendanceSession.routes.
 import attendanceModeRequestRoutes from './modules/absensi/attendanceModeRequest.routes.js';
 import approvalsRoutes from './modules/approvals/approvals.routes.js';
 import payslipRoutes from './modules/slip-gaji/payslip.routes.js';
+import teamRoutes from './modules/team/team.routes.js';
 
 dotenv.config();
 
@@ -45,6 +46,7 @@ app.use('/api/attendance-sessions', attendanceSessionRoutes);
 app.use('/api/attendance-mode-requests', attendanceModeRequestRoutes);
 app.use('/api/approvals', approvalsRoutes);
 app.use('/api/payslips', payslipRoutes);
+app.use('/api/team', teamRoutes);
 
 // Health check endpoint
 app.get('/api', (req, res) => {
