@@ -10,9 +10,12 @@ import {
   AlertCircle,
   Users as UsersIcon,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useDocumentTitle } from '../../../hooks/useDocumentTitle.js';
 import { getAuthToken } from '../../../utils/authSession.js';
+import { getDefaultCutoff } from '../../../utils/cutoffPeriod.js';
 import UserAvatar from '../../../components/UserAvatar.jsx';
 import Modal from '../../../components/Modal.jsx';
 
@@ -43,19 +46,24 @@ function getBadgeStyle(variant) {
 export default function Tim() {
   useDocumentTitle('Ringkasan Tim');
 
+  const defaultCutoff = getDefaultCutoff();
+  const [cutoffMonth, setCutoffMonth] = useState(defaultCutoff.cutoffMonth);
+  const [cutoffYear, setCutoffYear] = useState(defaultCutoff.cutoffYear);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
 
-  const fetchTeamData = useCallback(async (isManualRefresh = false) => {
+  const fetchTeamData = useCallback(async (isManualRefresh = false, m = cutoffMonth, y = cutoffYear) => {
     if (isManualRefresh) setRefreshing(true);
     else setLoading(true);
     setError(null);
 
     try {
-      const res = await teamApi.get('/team/summary');
+      const res = await teamApi.get('/team/summary', {
+        params: { cutoffMonth: m, cutoffYear: y },
+      });
       if (res.data?.success) {
         setData(res.data.data);
       } else {
@@ -69,15 +77,33 @@ export default function Tim() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [cutoffMonth, cutoffYear]);
 
   useEffect(() => {
-    fetchTeamData();
-  }, [fetchTeamData]);
+    fetchTeamData(false, cutoffMonth, cutoffYear);
+  }, [cutoffMonth, cutoffYear, fetchTeamData]);
+
+  const handlePrevCutoff = () => {
+    if (cutoffMonth === 1) {
+      setCutoffMonth(12);
+      setCutoffYear((prev) => prev - 1);
+    } else {
+      setCutoffMonth((prev) => prev - 1);
+    }
+  };
+
+  const handleNextCutoff = () => {
+    if (cutoffMonth === 12) {
+      setCutoffMonth(1);
+      setCutoffYear((prev) => prev + 1);
+    } else {
+      setCutoffMonth((prev) => prev + 1);
+    }
+  };
 
   const handleRefresh = () => {
     if (refreshing || loading) return;
-    fetchTeamData(true);
+    fetchTeamData(true, cutoffMonth, cutoffYear);
   };
 
   const supervisor = data?.supervisor || {};
@@ -145,22 +171,51 @@ export default function Tim() {
           </div>
         </div>
 
-        {/* Row 2: Team Name, Month, & Watermark */}
-        <div className="relative z-10 mt-5">
-          <p className="text-[12.5px] font-semibold text-slate-300 tracking-tight">
-            Tim {supervisor.department_name || 'Operasional'} · {teamSummary.total_members || members.length} anggota
+        {/* Row 2: Team Name & Watermark */}
+        <div className="relative z-10 mt-5 flex items-center justify-between">
+          <p className="text-[12.5px] font-semibold text-slate-300 tracking-tight truncate">
+            Tim {supervisor.department_name || 'Operasional'} · {teamSummary.total_members || members.length} anggota aktif
           </p>
-          <h2 className="text-[25px] sm:text-[27px] font-black text-white tracking-tight leading-tight mt-0.5">
-            {period.month_label || 'Bulan Ini'}
-          </h2>
-          <div className="flex items-center justify-between mt-0.5">
-            <span className="text-[12px] text-slate-300/80 font-medium">
-              {period.range_label || 'Periode Berjalan'}
+          <span className="text-[11px] font-bold text-slate-400/90 tracking-tight flex-shrink-0">
+            Alora Mobile
+          </span>
+        </div>
+
+        {/* Row 2.5: Cutoff Period Filter Navigator */}
+        <div className="relative z-10 mt-3 bg-white/10 backdrop-blur-md rounded-[20px] p-2 border border-white/15 flex items-center justify-between shadow-sm">
+          <button
+            type="button"
+            onClick={handlePrevCutoff}
+            disabled={loading || refreshing}
+            className="w-9 h-9 rounded-[14px] bg-white/10 hover:bg-white/20 active:scale-90 flex items-center justify-center text-white transition disabled:opacity-40"
+            aria-label="Periode Cut Off Sebelumnya"
+            title="Cut Off Sebelumnya"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+
+          <div className="flex flex-col items-center text-center px-2 min-w-0">
+            <span className="text-[10px] text-slate-300/80 font-medium tracking-wider uppercase">
+              Periode Cut Off
             </span>
-            <span className="text-[12px] font-bold text-white tracking-tight">
-              Alora Mobile
+            <span className="text-[15px] sm:text-[16px] font-black text-white tracking-tight truncate mt-0.5">
+              {period.month_label || 'Cut Off'}
+            </span>
+            <span className="text-[11.5px] text-sky-300 font-semibold tracking-tight mt-0.5">
+              {period.range_label || '26 – 25'}
             </span>
           </div>
+
+          <button
+            type="button"
+            onClick={handleNextCutoff}
+            disabled={loading || refreshing}
+            className="w-9 h-9 rounded-[14px] bg-white/10 hover:bg-white/20 active:scale-90 flex items-center justify-center text-white transition disabled:opacity-40"
+            aria-label="Periode Cut Off Selanjutnya"
+            title="Cut Off Selanjutnya"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Row 3: 4 Team Summary Cards */}
@@ -409,7 +464,7 @@ export default function Tim() {
       >
         <div className="flex flex-col gap-2.5 text-[12px] text-slate-600">
           <p>
-            Halaman ini memberikan gambaran ringkas kehadiran anggota tim di bawah supervisi Anda pada periode berjalan:
+            Halaman ini memberikan gambaran ringkas kehadiran anggota tim di bawah supervisi Anda pada periode cut off berjalan:
           </p>
           <div className="space-y-2 mt-1">
             <div className="p-2 bg-amber-50 rounded-xl border border-amber-100">
