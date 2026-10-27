@@ -3,11 +3,13 @@ import {
   MODE_REQUEST_STATUSES,
   MODE_REQUEST_TYPES,
   canApproveModeRequests,
+  resolveInitialStatus,
   statusLabel,
   toDateOnly,
   validateCreatePayload,
 } from './utils/attendanceModeRequestRules.js';
 import { appendReplaceOffLedger } from '../perizinan/utils/ledgerService.js';
+import { getApproverContext } from '../../shared/utils/approvalAccess.js';
 
 async function getEmployeeJobContext(employeeId) {
   const [rows] = await mainPool.query(
@@ -63,9 +65,15 @@ export async function assertNoActiveRequestConflict(employeeId, workDate) {
   const dateOnly = toDateOnly(workDate);
   const [rows] = await aloraMobilePool.query(
     `SELECT id, request_type, status FROM tr_attendance_mode_requests
-     WHERE employee_id = ? AND work_date = ? AND status IN (?, ?)
+     WHERE employee_id = ? AND work_date = ? AND status IN (?, ?, ?)
      LIMIT 1`,
-    [employeeId, dateOnly, MODE_REQUEST_STATUSES.PENDING, MODE_REQUEST_STATUSES.APPROVED]
+    [
+      employeeId,
+      dateOnly,
+      MODE_REQUEST_STATUSES.PENDING_SUPERVISOR,
+      MODE_REQUEST_STATUSES.PENDING_HRD,
+      MODE_REQUEST_STATUSES.APPROVED,
+    ]
   );
   if (rows[0]) {
     const error = new Error(
@@ -114,6 +122,8 @@ export const createRequest = async (req, res) => {
 
     await assertNoActiveRequestConflict(req.employeeId, validated.workDate);
 
+    const initialStatus = resolveInitialStatus(requester.job_level_id);
+
     const [result] = await aloraMobilePool.query(
       `INSERT INTO tr_attendance_mode_requests
          (employee_id, request_type, work_date, reason, status)
@@ -123,7 +133,7 @@ export const createRequest = async (req, res) => {
         validated.requestType,
         validated.workDate,
         validated.reason,
-        MODE_REQUEST_STATUSES.PENDING,
+        initialStatus,
       ]
     );
 
@@ -183,7 +193,10 @@ export const cancelRequest = async (req, res) => {
       [id, req.employeeId]
     );
     if (!row) return res.status(404).json({ message: 'Pengajuan tidak ditemukan' });
-    if (row.status !== MODE_REQUEST_STATUSES.PENDING) {
+    if (
+      row.status !== MODE_REQUEST_STATUSES.PENDING_SUPERVISOR &&
+      row.status !== MODE_REQUEST_STATUSES.PENDING_HRD
+    ) {
       return res.status(409).json({ message: 'Hanya pengajuan menunggu yang bisa dibatalkan' });
     }
 
@@ -197,14 +210,23 @@ export const cancelRequest = async (req, res) => {
 
 export const listPendingApprovals = async (req, res) => {
   try {
-    const approver = await getEmployeeJobContext(req.employeeId);
-    if (!canApproveModeRequests(approver?.job_level_id)) {
-      return res.status(403).json({ message: 'Hanya supervisor yang dapat melihat antrian' });
+    const ctx = await getApproverContext(req.employeeId);
+    if (!ctx?.canAccess) {
+      return res.status(403).json({ message: 'Hanya supervisor atau HRD yang dapat melihat antrian' });
     }
 
     const requestType = String(req.query.request_type || '').trim().toLowerCase();
-    const where = ['status = ?'];
-    const params = [MODE_REQUEST_STATUSES.PENDING];
+    const where = [];
+    const params = [];
+
+    if (ctx.isSpv && ctx.isHrd) {
+      where.push(`(status = 'Pending_Supervisor' OR status = 'Pending_HRD')`);
+    } else if (ctx.isSpv) {
+      where.push(`status = 'Pending_Supervisor'`);
+    } else {
+      where.push(`status = 'Pending_HRD'`);
+    }
+
     if (requestType === MODE_REQUEST_TYPES.WFA || requestType === MODE_REQUEST_TYPES.WOD) {
       where.push('request_type = ?');
       params.push(requestType);
@@ -219,13 +241,18 @@ export const listPendingApprovals = async (req, res) => {
     );
 
     const empMap = await getEmployeeMap(rows.map((r) => r.employee_id));
-    const deptId = approver.department_id != null ? Number(approver.department_id) : null;
     const filtered = rows.filter((row) => {
       if (Number(row.employee_id) === Number(req.employeeId)) return false;
       const emp = empMap.get(Number(row.employee_id));
       if (!emp) return false;
-      if (deptId == null) return true;
-      return Number(emp.department_id) === deptId;
+      if (row.status === MODE_REQUEST_STATUSES.PENDING_SUPERVISOR && ctx.isSpv) {
+        if (ctx.departmentId != null && Number(emp.department_id) !== ctx.departmentId) return false;
+        return true;
+      }
+      if (row.status === MODE_REQUEST_STATUSES.PENDING_HRD && ctx.isHrd) {
+        return true;
+      }
+      return false;
     });
 
     return res.json({
@@ -245,9 +272,11 @@ export const listPendingApprovals = async (req, res) => {
 
 export const getApproverCapability = async (req, res) => {
   try {
-    const approver = await getEmployeeJobContext(req.employeeId);
+    const ctx = await getApproverContext(req.employeeId);
     return res.json({
-      can_approve: canApproveModeRequests(approver?.job_level_id),
+      can_approve: Boolean(ctx?.canAccess),
+      is_spv: Boolean(ctx?.isSpv),
+      is_hrd: Boolean(ctx?.isHrd),
     });
   } catch (error) {
     console.error('[mode-request] capability', error);
@@ -258,9 +287,9 @@ export const getApproverCapability = async (req, res) => {
 export const approveRequest = async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const approver = await getEmployeeJobContext(req.employeeId);
-    if (!canApproveModeRequests(approver?.job_level_id)) {
-      return res.status(403).json({ message: 'Hanya supervisor yang dapat menyetujui' });
+    const ctx = await getApproverContext(req.employeeId);
+    if (!ctx?.canAccess) {
+      return res.status(403).json({ message: 'Hanya supervisor atau HRD yang dapat menyetujui' });
     }
 
     const [[row]] = await aloraMobilePool.query(
@@ -271,42 +300,75 @@ export const approveRequest = async (req, res) => {
     if (Number(row.employee_id) === Number(req.employeeId)) {
       return res.status(403).json({ message: 'Tidak dapat menyetujui pengajuan sendiri' });
     }
-    if (row.status !== MODE_REQUEST_STATUSES.PENDING) {
-      return res.status(400).json({ message: 'Status pengajuan tidak valid untuk disetujui' });
-    }
 
     const empMap = await getEmployeeMap([row.employee_id]);
     const emp = empMap.get(Number(row.employee_id));
-    const deptId = approver.department_id != null ? Number(approver.department_id) : null;
-    if (deptId != null && emp && Number(emp.department_id) !== deptId) {
-      return res.status(403).json({ message: 'Pengajuan di luar departemen Anda' });
+
+    if (row.status === MODE_REQUEST_STATUSES.PENDING_SUPERVISOR) {
+      if (!ctx.isSpv) {
+        return res.status(403).json({ message: 'Hanya supervisor yang dapat menyetujui pengajuan ini' });
+      }
+      if (ctx.departmentId != null && emp && Number(emp.department_id) !== ctx.departmentId) {
+        return res.status(403).json({ message: 'Pengajuan di luar departemen Anda' });
+      }
+
+      await aloraMobilePool.query(
+        `UPDATE tr_attendance_mode_requests
+         SET status = ?,
+             supervisor_id = ?,
+             supervisor_approved_at = NOW(),
+             supervisor_rejection_reason = NULL,
+             updated_at = NOW()
+         WHERE id = ?`,
+        [
+          MODE_REQUEST_STATUSES.PENDING_HRD,
+          req.employeeId,
+          id,
+        ]
+      );
+
+      const [[updated]] = await aloraMobilePool.query(
+        'SELECT * FROM tr_attendance_mode_requests WHERE id = ?',
+        [id]
+      );
+      return res.json({
+        message: 'Persetujuan supervisor berhasil. Status diteruskan ke HRD.',
+        item: serializeRow(updated),
+      });
+
+    } else if (row.status === MODE_REQUEST_STATUSES.PENDING_HRD) {
+      if (!ctx.isHrd) {
+        return res.status(403).json({ message: 'Hanya HRD yang dapat menyetujui pengajuan ini' });
+      }
+
+      await aloraMobilePool.query(
+        `UPDATE tr_attendance_mode_requests
+         SET status = ?,
+             approved_by = ?,
+             approved_by_name = ?,
+             approved_at = NOW(),
+             updated_at = NOW()
+         WHERE id = ?`,
+        [
+          MODE_REQUEST_STATUSES.APPROVED,
+          req.employeeId,
+          ctx.fullName || null,
+          id,
+        ]
+      );
+
+      const [[updated]] = await aloraMobilePool.query(
+        'SELECT * FROM tr_attendance_mode_requests WHERE id = ?',
+        [id]
+      );
+      return res.json({
+        message: 'Pengajuan berhasil disetujui HRD',
+        item: serializeRow(updated),
+      });
+
+    } else {
+      return res.status(400).json({ message: 'Status pengajuan tidak valid untuk disetujui' });
     }
-
-    await aloraMobilePool.query(
-      `UPDATE tr_attendance_mode_requests
-       SET status = ?,
-           supervisor_id = ?,
-           supervisor_approved_at = NOW(),
-           supervisor_rejection_reason = NULL,
-           approved_by = ?,
-           approved_by_name = ?,
-           approved_at = NOW(),
-           updated_at = NOW()
-       WHERE id = ?`,
-      [
-        MODE_REQUEST_STATUSES.APPROVED,
-        req.employeeId,
-        req.employeeId,
-        approver.full_name || null,
-        id,
-      ]
-    );
-
-    const [[updated]] = await aloraMobilePool.query(
-      'SELECT * FROM tr_attendance_mode_requests WHERE id = ?',
-      [id]
-    );
-    return res.json({ message: 'Pengajuan disetujui', item: serializeRow(updated) });
   } catch (error) {
     console.error('[mode-request] approve', error);
     return res.status(500).json({ message: 'Gagal menyetujui pengajuan' });
@@ -321,9 +383,9 @@ export const rejectRequest = async (req, res) => {
       return res.status(422).json({ message: 'Alasan penolakan wajib diisi' });
     }
 
-    const approver = await getEmployeeJobContext(req.employeeId);
-    if (!canApproveModeRequests(approver?.job_level_id)) {
-      return res.status(403).json({ message: 'Hanya supervisor yang dapat menolak' });
+    const ctx = await getApproverContext(req.employeeId);
+    if (!ctx?.canAccess) {
+      return res.status(403).json({ message: 'Hanya supervisor atau HRD yang dapat menolak' });
     }
 
     const [[row]] = await aloraMobilePool.query(
@@ -334,15 +396,26 @@ export const rejectRequest = async (req, res) => {
     if (Number(row.employee_id) === Number(req.employeeId)) {
       return res.status(403).json({ message: 'Tidak dapat menolak pengajuan sendiri' });
     }
-    if (row.status !== MODE_REQUEST_STATUSES.PENDING) {
-      return res.status(400).json({ message: 'Status pengajuan tidak valid untuk ditolak' });
-    }
 
     const empMap = await getEmployeeMap([row.employee_id]);
     const emp = empMap.get(Number(row.employee_id));
-    const deptId = approver.department_id != null ? Number(approver.department_id) : null;
-    if (deptId != null && emp && Number(emp.department_id) !== deptId) {
-      return res.status(403).json({ message: 'Pengajuan di luar departemen Anda' });
+
+    let finalStatus;
+    if (row.status === MODE_REQUEST_STATUSES.PENDING_SUPERVISOR) {
+      if (!ctx.isSpv) {
+        return res.status(403).json({ message: 'Hanya supervisor yang dapat menolak pengajuan ini' });
+      }
+      if (ctx.departmentId != null && emp && Number(emp.department_id) !== ctx.departmentId) {
+        return res.status(403).json({ message: 'Pengajuan di luar departemen Anda' });
+      }
+      finalStatus = MODE_REQUEST_STATUSES.REJECTED_SUPERVISOR;
+    } else if (row.status === MODE_REQUEST_STATUSES.PENDING_HRD) {
+      if (!ctx.isHrd) {
+        return res.status(403).json({ message: 'Hanya HRD yang dapat menolak pengajuan ini' });
+      }
+      finalStatus = MODE_REQUEST_STATUSES.REJECTED_HRD;
+    } else {
+      return res.status(400).json({ message: 'Status pengajuan tidak valid untuk ditolak' });
     }
 
     await aloraMobilePool.query(
@@ -356,7 +429,7 @@ export const rejectRequest = async (req, res) => {
            approved_at = NULL,
            updated_at = NOW()
        WHERE id = ?`,
-      [MODE_REQUEST_STATUSES.REJECTED, req.employeeId, reason, id]
+      [finalStatus, req.employeeId, reason, id]
     );
 
     const [[updated]] = await aloraMobilePool.query(

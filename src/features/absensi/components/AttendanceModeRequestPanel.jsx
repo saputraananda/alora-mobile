@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 
 const STATUS_META = {
-  Pending_Supervisor: { label: 'Menunggu', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  Pending_Supervisor: { label: 'Menunggu SPV', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  Pending_HRD: { label: 'Menunggu HRD', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
   disetujui: { label: 'Disetujui', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  Rejected_Supervisor: { label: 'Ditolak', cls: 'bg-red-50 text-red-600 border-red-200' },
+  Rejected_Supervisor: { label: 'Ditolak SPV', cls: 'bg-red-50 text-red-600 border-red-200' },
+  Rejected_HRD: { label: 'Ditolak HRD', cls: 'bg-red-50 text-red-600 border-red-200' },
 };
 
 const fmt2 = (n) => String(n).padStart(2, '0');
@@ -145,7 +147,7 @@ export default function AttendanceModeRequestPanel({ api, requestType }) {
                 <StatusBadge status={item.status} />
               </div>
               <p className="text-[12px] text-slate-600 mt-1 line-clamp-2">{item.reason}</p>
-              {item.status === 'Pending_Supervisor' && (
+              {(item.status === 'Pending_Supervisor' || item.status === 'Pending_HRD') && (
                 <button
                   type="button"
                   onClick={() => handleCancel(item.id)}

@@ -75,10 +75,18 @@ async function getApprovedLemburHoursMap(employeeIds, periodStart, periodEnd) {
 }
 
 async function fetchModeInbox(ctx, typeFilter = null) {
-  if (!ctx.isSpv) return [];
+  if (!ctx.isSpv && !ctx.isHrd) return [];
 
-  const where = ['status = ?'];
-  const params = [MODE_REQUEST_STATUSES.PENDING];
+  const where = [];
+  const params = [];
+  if (ctx.isSpv && ctx.isHrd) {
+    where.push(`(status = 'Pending_Supervisor' OR status = 'Pending_HRD')`);
+  } else if (ctx.isSpv) {
+    where.push(`status = 'Pending_Supervisor'`);
+  } else {
+    where.push(`status = 'Pending_HRD'`);
+  }
+
   if (typeFilter === 'wfa' || typeFilter === 'wod') {
     where.push('request_type = ?');
     params.push(typeFilter);
@@ -100,8 +108,12 @@ async function fetchModeInbox(ctx, typeFilter = null) {
       if (Number(row.employee_id) === Number(ctx.employeeId)) return false;
       const emp = empMap.get(Number(row.employee_id));
       if (!emp) return false;
-      if (ctx.departmentId != null && Number(emp.department_id) !== ctx.departmentId) return false;
-      return true;
+      if (row.status === 'Pending_Supervisor' && ctx.isSpv) {
+        if (ctx.departmentId != null && Number(emp.department_id) !== ctx.departmentId) return false;
+        return true;
+      }
+      if (row.status === 'Pending_HRD' && ctx.isHrd) return true;
+      return false;
     })
     .map((row) => {
       const emp = empMap.get(Number(row.employee_id));
@@ -115,7 +127,7 @@ async function fetchModeInbox(ctx, typeFilter = null) {
         subtitle: row.reason || '',
         work_date: toDateOnly(row.work_date),
         status: row.status,
-        action_role: 'spv',
+        action_role: row.status === 'Pending_HRD' ? 'hrd' : 'spv',
         meta: { reason: row.reason },
       };
     });
