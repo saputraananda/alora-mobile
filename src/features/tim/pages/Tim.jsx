@@ -224,8 +224,8 @@ export default function Tim() {
           <div className="bg-white/10 backdrop-blur-md rounded-[18px] p-2.5 sm:p-3 border border-white/10 flex flex-col justify-between shadow-sm min-h-[82px]">
             <span className="text-[11.5px] font-semibold text-slate-300 truncate">Telat</span>
             <div className="mt-1">
-              <div className="text-[17px] sm:text-[18px] font-black text-white leading-tight tracking-tight truncate">
-                {teamSummary.telat?.count ?? 0}x
+              <div className="text-[16px] sm:text-[17px] font-black text-white leading-tight tracking-tight truncate">
+                {teamSummary.telat?.days_label || `${teamSummary.telat?.count ?? 0} hari`}
               </div>
               <div className="text-[12px] sm:text-[12.5px] font-semibold text-slate-300/80 mt-0.5">
                 {teamSummary.telat?.duration_label || '0j 00m'}
@@ -233,12 +233,12 @@ export default function Tim() {
             </div>
           </div>
 
-          {/* Izin */}
+          {/* Izin & Sakit */}
           <div className="bg-white/10 backdrop-blur-md rounded-[18px] p-2.5 sm:p-3 border border-white/10 flex flex-col justify-between shadow-sm min-h-[82px]">
-            <span className="text-[11.5px] font-semibold text-slate-300 truncate">Izin</span>
+            <span className="text-[11.5px] font-semibold text-slate-300 truncate" title="Izin & Sakit">Izin & Sakit</span>
             <div className="mt-1">
-              <div className="text-[17px] sm:text-[18px] font-black text-white leading-tight tracking-tight truncate">
-                {teamSummary.izin?.count ?? 0}x
+              <div className="text-[16px] sm:text-[17px] font-black text-white leading-tight tracking-tight truncate">
+                {teamSummary.izin?.days_label || `${teamSummary.izin?.count ?? 0} hari`}
               </div>
               <div className="text-[12px] sm:text-[12.5px] font-semibold text-slate-300/80 mt-0.5">
                 {teamSummary.izin?.duration_label || '0j 00m'}
@@ -250,8 +250,8 @@ export default function Tim() {
           <div className="bg-white/10 backdrop-blur-md rounded-[18px] p-2.5 sm:p-3 border border-white/10 flex flex-col justify-between shadow-sm min-h-[82px]">
             <span className="text-[11.5px] font-semibold text-slate-300 truncate">Lembur</span>
             <div className="mt-1">
-              <div className="text-[17px] sm:text-[18px] font-black text-white leading-tight tracking-tight truncate">
-                {teamSummary.lembur?.count ?? 0}x
+              <div className="text-[16px] sm:text-[17px] font-black text-white leading-tight tracking-tight truncate">
+                {teamSummary.lembur?.days_label || `${teamSummary.lembur?.count ?? 0} hari`}
               </div>
               <div className="text-[12px] sm:text-[12.5px] font-semibold text-slate-300/80 mt-0.5">
                 {teamSummary.lembur?.duration_label || '0j 00m'}
@@ -390,8 +390,8 @@ export default function Tim() {
                         <span className="text-[10.5px] sm:text-[11px] text-slate-500 font-medium block leading-tight">
                           Telat
                         </span>
-                        <span className="text-[16px] sm:text-[17px] font-black text-navy-950 leading-tight tracking-tight block mt-0.5">
-                          {metrics.telat?.count ?? 0}x
+                        <span className="text-[15px] sm:text-[16px] font-black text-navy-950 leading-tight tracking-tight block mt-0.5">
+                          {metrics.telat?.days_label || `${metrics.telat?.count ?? 0} hari`}
                         </span>
                         <span className="text-[11px] sm:text-[11.5px] font-bold text-slate-500 block mt-0.5 truncate">
                           {metrics.telat?.duration_label || '0j 00m'}
@@ -399,15 +399,15 @@ export default function Tim() {
                       </div>
                     </div>
 
-                    {/* 2. Izin (Soft Sky Blue) */}
+                    {/* 2. Izin & Sakit (Soft Sky Blue) */}
                     <div className="bg-[#F0F8FF] border border-[#D9EEFF] rounded-[18px] p-2.5 flex flex-col justify-between min-h-[84px]">
                       <FileText className="w-4 h-4 text-sky-500 flex-shrink-0" />
                       <div className="mt-1">
-                        <span className="text-[10.5px] sm:text-[11px] text-slate-500 font-medium block leading-tight">
-                          Izin
+                        <span className="text-[10px] sm:text-[10.5px] text-slate-500 font-medium block leading-tight truncate" title="Izin & Sakit">
+                          Izin & Sakit
                         </span>
-                        <span className="text-[16px] sm:text-[17px] font-black text-navy-950 leading-tight tracking-tight block mt-0.5">
-                          {metrics.izin?.count ?? 0}x
+                        <span className="text-[15px] sm:text-[16px] font-black text-navy-950 leading-tight tracking-tight block mt-0.5">
+                          {metrics.izin?.days_label || `${metrics.izin?.count ?? 0} hari`}
                         </span>
                         <span className="text-[11px] sm:text-[11.5px] font-bold text-slate-500 block mt-0.5 truncate">
                           {metrics.izin?.duration_label || '0j 00m'}
@@ -422,8 +422,8 @@ export default function Tim() {
                         <span className="text-[10.5px] sm:text-[11px] text-slate-500 font-medium block leading-tight">
                           Lembur
                         </span>
-                        <span className="text-[16px] sm:text-[17px] font-black text-navy-950 leading-tight tracking-tight block mt-0.5">
-                          {metrics.lembur?.count ?? 0}x
+                        <span className="text-[15px] sm:text-[16px] font-black text-navy-950 leading-tight tracking-tight block mt-0.5">
+                          {metrics.lembur?.days_label || `${metrics.lembur?.count ?? 0} hari`}
                         </span>
                         <span className="text-[11px] sm:text-[11.5px] font-bold text-slate-500 block mt-0.5 truncate">
                           {metrics.lembur?.duration_label || '0j 00m'}
@@ -470,19 +470,19 @@ export default function Tim() {
             <div className="p-2 bg-amber-50 rounded-xl border border-amber-100">
               <span className="font-bold text-amber-900 block">Telat</span>
               <span className="text-[11px] text-amber-800">
-                Total durasi keterlambatan presensi masuk dan jumlah kali terlambat.
+                Total durasi keterlambatan presensi masuk dan jumlah hari terlambat.
               </span>
             </div>
             <div className="p-2 bg-sky-50 rounded-xl border border-sky-100">
-              <span className="font-bold text-sky-900 block">Izin</span>
+              <span className="font-bold text-sky-900 block">Izin & Sakit</span>
               <span className="text-[11px] text-sky-800">
-                Akumulasi jam izin yang telah disetujui serta frekuensi pengajuannya.
+                Akumulasi hari dan jam perizinan (izin, sakit, dan cuti) yang telah disetujui dalam periode cut off.
               </span>
             </div>
             <div className="p-2 bg-purple-50 rounded-xl border border-purple-100">
               <span className="font-bold text-purple-900 block">Lembur</span>
               <span className="text-[11px] text-purple-800">
-                Total durasi lembur yang disetujui supervisor dalam periode aktif.
+                Total durasi lembur yang disetujui supervisor dan jumlah hari lembur.
               </span>
             </div>
             <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-100">

@@ -149,9 +149,9 @@ export const getTeamSummary = async (req, res) => {
           },
           team_summary: {
             total_members: 0,
-            telat: { duration_label: '0j 00m', count: 0, total_minutes: 0 },
-            izin: { duration_label: '0j 00m', count: 0, total_minutes: 0 },
-            lembur: { duration_label: '0j 00m', count: 0, total_minutes: 0 },
+            telat: { duration_label: '0j 00m', count: 0, days_label: '0 hari', total_minutes: 0 },
+            izin: { duration_label: '0j 00m', count: 0, days_label: '0 hari', total_minutes: 0 },
+            lembur: { duration_label: '0j 00m', count: 0, days_label: '0 hari', total_minutes: 0 },
             replace_off: { days: 0, days_label: '0 hari', sub_label: 'WOD' },
           },
           members: [],
@@ -238,7 +238,7 @@ export const getTeamSummary = async (req, res) => {
         }
       }
 
-      // B. IZIN (akumulasi jam izin & frekuensi)
+      // B. IZIN, SAKIT & CUTI (akumulasi perizinan resmi)
       let izinMinutes = 0;
       let izinCount = 0;
       let replaceOffDays = 0;
@@ -252,9 +252,21 @@ export const getTeamSummary = async (req, res) => {
           replaceOffDays += 1;
         }
 
-        if (ltype === 'izin') {
-          izinCount += 1;
-          const hrs = durationHours > 0 ? durationHours : 8;
+        const isIzinSakitCuti = ltype === 'izin' || ltype === 'sakit' || ltype === 'cuti';
+        if (isIzinSakitCuti) {
+          const s = toDateOnlyJakarta(l.start_date);
+          const e = toDateOnlyJakarta(l.end_date);
+          let days = 1;
+          const dtype = String(l.duration_type || '').toLowerCase();
+          const isPartial = ['partial', 'half_day', 'half_day_morning', 'half_day_afternoon'].includes(dtype);
+          if (s && e && s < e && !isPartial) {
+            const startD = new Date(Math.max(new Date(s).getTime(), new Date(periodStart).getTime()));
+            const endD = new Date(Math.min(new Date(e).getTime(), new Date(periodEnd).getTime()));
+            const diffDays = Math.round((endD - startD) / 86400000) + 1;
+            days = Math.max(1, diffDays);
+          }
+          izinCount += days;
+          const hrs = durationHours > 0 ? durationHours : (days * 8);
           izinMinutes += hoursToMinutes(hrs);
         }
       }
@@ -333,16 +345,19 @@ export const getTeamSummary = async (req, res) => {
           telat: {
             duration_label: formatHM(lateMinutes).label,
             count: lateCount,
+            days_label: `${lateCount} hari`,
             total_minutes: lateMinutes,
           },
           izin: {
             duration_label: formatHM(izinMinutes).label,
             count: izinCount,
+            days_label: `${izinCount} hari`,
             total_minutes: izinMinutes,
           },
           lembur: {
             duration_label: formatHM(lemburMinutes).label,
             count: lemburCount,
+            days_label: `${lemburCount} hari`,
             total_minutes: lemburMinutes,
           },
           replace_off: {
@@ -380,16 +395,19 @@ export const getTeamSummary = async (req, res) => {
           telat: {
             duration_label: formatHM(teamTotalLateMinutes).label,
             count: teamTotalLateCount,
+            days_label: `${teamTotalLateCount} hari`,
             total_minutes: teamTotalLateMinutes,
           },
           izin: {
             duration_label: formatHM(teamTotalIzinMinutes).label,
             count: teamTotalIzinCount,
+            days_label: `${teamTotalIzinCount} hari`,
             total_minutes: teamTotalIzinMinutes,
           },
           lembur: {
             duration_label: formatHM(teamTotalLemburMinutes).label,
             count: teamTotalLemburCount,
+            days_label: `${teamTotalLemburCount} hari`,
             total_minutes: teamTotalLemburMinutes,
           },
           replace_off: {
