@@ -4,6 +4,8 @@ import {
   todayDateStringJakarta,
   toDateOnlyJakarta,
   isOffDay,
+  buildPeriodRange,
+  getCutoffPeriodForToday,
 } from '../../shared/utils/workScheduleRules.js';
 
 const MONTH_NAMES_ID = [
@@ -69,7 +71,7 @@ export const getTeamSummary = async (req, res) => {
        LEFT JOIN mst_position p ON e.position_id = p.position_id
        LEFT JOIN mst_job_level jl ON e.job_level_id = jl.job_level_id
        LEFT JOIN users u ON (u.email = e.email OR u.username = e.employee_code OR u.id = e.employee_id)
-       WHERE e.employee_id = ? AND e.is_deleted = 0
+       WHERE e.employee_id = ? AND e.is_deleted = 0 AND e.exit_date IS NULL
        LIMIT 1`,
       [spvEmployeeId]
     );
@@ -84,25 +86,29 @@ export const getTeamSummary = async (req, res) => {
       });
     }
 
-    // 3. Tentukan rentang periode
+    // 3. Tentukan rentang periode Cut Off (26 bulan lalu s.d. 25 bulan berjalan)
     const today = todayDateStringJakarta();
-    const now = new Date();
-    const reqYear = Number(req.query.year) || now.getFullYear();
-    const reqMonth = Number(req.query.month) || (now.getMonth() + 1);
+    const nowPeriod = getCutoffPeriodForToday() || { month: new Date().getMonth() + 1, year: new Date().getFullYear() };
+    const cutoffMonth = Number(req.query.cutoffMonth || req.query.month || nowPeriod.month);
+    const cutoffYear = Number(req.query.cutoffYear || req.query.year || nowPeriod.year);
 
-    // Hitung tanggal awal dan akhir bulan kalender
-    const pad = (n) => String(n).padStart(2, '0');
-    const lastDayOfMonth = new Date(reqYear, reqMonth, 0).getDate();
-    const periodStart = `${reqYear}-${pad(reqMonth)}-01`;
-    const periodEnd = `${reqYear}-${pad(reqMonth)}-${pad(lastDayOfMonth)}`;
+    const range = buildPeriodRange(cutoffMonth, cutoffYear);
+    if (!range) {
+      return res.status(400).json({
+        success: false,
+        message: 'Periode cut off tidak valid',
+      });
+    }
+    const { periodStart, periodEnd } = range;
 
-    // Untuk teks range subtitle (cth: "Periode 1 – 26 Okt 2026" jika bulan berjalan)
-    const activeEndDay = (reqYear === now.getFullYear() && reqMonth === (now.getMonth() + 1))
-      ? Math.min(now.getDate(), lastDayOfMonth)
-      : lastDayOfMonth;
-    const monthShort = MONTH_NAMES_SHORT[reqMonth - 1];
-    const rangeLabel = `Periode 1 – ${activeEndDay} ${monthShort} ${reqYear}`;
-    const monthLabel = `${MONTH_NAMES_ID[reqMonth - 1]} ${reqYear}`;
+    const prevMonth = cutoffMonth === 1 ? 12 : cutoffMonth - 1;
+    const prevYear = cutoffMonth === 1 ? cutoffYear - 1 : cutoffYear;
+    const prevMonthShort = MONTH_NAMES_SHORT[prevMonth - 1];
+    const monthShort = MONTH_NAMES_SHORT[cutoffMonth - 1];
+    const rangeLabel = prevYear !== cutoffYear
+      ? `26 ${prevMonthShort} ${prevYear} – 25 ${monthShort} ${cutoffYear}`
+      : `26 ${prevMonthShort} – 25 ${monthShort} ${cutoffYear}`;
+    const monthLabel = `Cut Off ${MONTH_NAMES_ID[cutoffMonth - 1]} ${cutoffYear}`;
 
     // 4. Ambil seluruh anggota tim dalam departemen (kecuali diri sendiri)
     const [members] = await mainPool.query(
@@ -112,7 +118,7 @@ export const getTeamSummary = async (req, res) => {
        LEFT JOIN mst_position p ON e.position_id = p.position_id
        LEFT JOIN mst_job_level jl ON e.job_level_id = jl.job_level_id
        LEFT JOIN users u ON (u.email = e.email OR u.username = e.employee_code OR u.id = e.employee_id)
-       WHERE e.department_id = ? AND e.employee_id != ? AND e.is_deleted = 0
+       WHERE e.department_id = ? AND e.employee_id != ? AND e.is_deleted = 0 AND e.exit_date IS NULL
        ORDER BY e.full_name ASC`,
       [departmentId, spvEmployeeId]
     );
@@ -132,8 +138,12 @@ export const getTeamSummary = async (req, res) => {
             initials: getInitials(spvData.full_name),
           },
           period: {
-            month: reqMonth,
-            year: reqYear,
+            cutoff_month: cutoffMonth,
+            cutoff_year: cutoffYear,
+            period_start: periodStart,
+            period_end: periodEnd,
+            month: cutoffMonth,
+            year: cutoffYear,
             month_label: monthLabel,
             range_label: rangeLabel,
           },
@@ -356,8 +366,12 @@ export const getTeamSummary = async (req, res) => {
           initials: getInitials(spvData.full_name),
         },
         period: {
-          month: reqMonth,
-          year: reqYear,
+          cutoff_month: cutoffMonth,
+          cutoff_year: cutoffYear,
+          period_start: periodStart,
+          period_end: periodEnd,
+          month: cutoffMonth,
+          year: cutoffYear,
           month_label: monthLabel,
           range_label: rangeLabel,
         },
