@@ -14,6 +14,7 @@ import attendanceModeRequestRoutes from './modules/absensi/attendanceModeRequest
 import approvalsRoutes from './modules/approvals/approvals.routes.js';
 import payslipRoutes from './modules/slip-gaji/payslip.routes.js';
 import teamRoutes from './modules/team/team.routes.js';
+import skillMatrixRoutes from './modules/skill-matrix/skillMatrix.routes.js';
 
 dotenv.config();
 
@@ -47,6 +48,7 @@ app.use('/api/attendance-mode-requests', attendanceModeRequestRoutes);
 app.use('/api/approvals', approvalsRoutes);
 app.use('/api/payslips', payslipRoutes);
 app.use('/api/team', teamRoutes);
+app.use('/api/skill-matrix', skillMatrixRoutes);
 
 // Health check endpoint
 app.get('/api', (req, res) => {
