@@ -401,6 +401,9 @@ export default function Absensi() {
       if (effectiveLate?.outside_note) {
         formData.append('outside_note', effectiveLate.outside_note);
       }
+      if (effectiveLate?.deduct_overtime != null) {
+        formData.append('deduct_overtime', String(effectiveLate.deduct_overtime));
+      }
     }
     if (action === 'out' && todoItems) {
       formData.append('todo_items', JSON.stringify(todoItems));
@@ -513,7 +516,7 @@ export default function Absensi() {
     }
   };
 
-  const handleIntentConfirm = ({ attendance_mode, mode_reason, late_reason, late_category, outside_note }) => {
+  const handleIntentConfirm = ({ attendance_mode, mode_reason, late_reason, late_category, outside_note, deduct_overtime }) => {
     submitPunch('in', {
       ...(pendingLateFields || {}),
       attendance_mode,
@@ -521,6 +524,7 @@ export default function Absensi() {
       ...(late_reason ? { late_reason } : {}),
       ...(late_category ? { late_category } : {}),
       ...(outside_note ? { outside_note } : {}),
+      ...(deduct_overtime != null ? { deduct_overtime } : {}),
     });
   };
 

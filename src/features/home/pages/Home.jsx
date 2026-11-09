@@ -12,7 +12,8 @@ import {
   Bell,
   Megaphone,
   CheckSquare,
-  BarChart3
+  BarChart3,
+  Star
 } from 'lucide-react';
 import aloraMobileLogo from '../../../assets/images/aloramobile-white.webp';
 import Modal from '../../../components/Modal.jsx';
@@ -62,6 +63,7 @@ export default function Home() {
   const [broadcastsLoading, setBroadcastsLoading] = useState(true);
   const [approvalAccess, setApprovalAccess] = useState(false);
   const [approvalTotal, setApprovalTotal] = useState(0);
+  const [isLo, setIsLo] = useState(false);
 
   // Load authenticated user data
   useEffect(() => {
@@ -108,6 +110,13 @@ export default function Home() {
     homeApi.get('/auth/leader-role')
       .then((r) => setLeaderRole(r.data?.data?.role || null))
       .catch(() => setLeaderRole(null));
+  }, []);
+
+  // Skill Matrix hanya untuk LO yang ditugaskan HR di Alora Academy.
+  useEffect(() => {
+    homeApi.get('/skill-matrix/access')
+      .then((r) => setIsLo(Boolean(r.data?.data?.is_lo)))
+      .catch(() => setIsLo(false));
   }, []);
 
   useEffect(() => {
@@ -250,6 +259,8 @@ export default function Home() {
       navigate('/slip-gaji');
     } else if (item.id === 'ringkasan') {
       navigate('/ringkasan');
+    } else if (item.id === 'skillmatrix') {
+      navigate('/skill-matrix');
     } else {
       openMenuModal(item.title, item.modalDesc);
     }
@@ -313,7 +324,17 @@ export default function Home() {
       icon: <BarChart3 className="w-5 h-5 text-blue-600" />,
       badgeColor: 'bg-blue-50 border-blue-200/80',
       modalDesc: 'Rekapitulasi kehadiran, cuti, lembur, dan potongan per cutoff.'
-    }
+    },
+    ...(isLo
+      ? [{
+          id: 'skillmatrix',
+          title: 'Skill Matrix',
+          subtitle: 'Penilaian karyawan',
+          icon: <Star className="w-5 h-5 text-orange-600" />,
+          badgeColor: 'bg-orange-50 border-orange-200/80',
+          modalDesc: 'Penilaian skill matrix karyawan Waschen di cabangmu.',
+        }]
+      : [])
   ];
 
   return (

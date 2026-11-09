@@ -6,6 +6,7 @@ import { getBaseUploadDir } from '../../shared/upload.js';
 import {
   computeLateInfoFromClockIn,
   getLateToleranceDateTime,
+  getWorkScheduleTimes,
   todayDateStringJakarta,
   toDateOnlyJakarta,
   getWorkScheduleForDate,
@@ -15,7 +16,7 @@ import {
   jakartaWeekday,
 } from '../../shared/utils/workScheduleRules.js';
 import { isAttendanceOffDay, isSundayOpenForEmployee } from '../../shared/utils/attendanceDayRules.js';
-import { getOvertimeUsableBalance, getReplaceOffUsableBalance } from '../perizinan/utils/ledgerService.js';
+import { getOvertimeUsableBalance, getReplaceOffUsableBalance, appendOvertimeLedger } from '../perizinan/utils/ledgerService.js';
 import { getEmployeeDayContext, getEmployeeMonthFinalStatuses } from './utils/attendanceStatusResolver.js';
 import {
   assertModeAllowedForDay,
@@ -193,9 +194,9 @@ function parseLateFields(body) {
 }
 
 async function validateAndBuildLateFields(today, lateReason, lateCategory) {
-  const tolerance = await getLateToleranceDateTime(today);
+  const { startTime, toleranceTime } = await getWorkScheduleTimes(today);
   const now = new Date();
-  const { isLate, lateMinutes } = computeLateInfoFromClockIn(now, today, tolerance);
+  const { isLate, lateMinutes } = computeLateInfoFromClockIn(now, today, toleranceTime, startTime);
 
   if (!isLate) {
     return { lateMinutes: null, lateCategory: null, lateReason: null, lateStatus: null };
@@ -375,10 +376,15 @@ export const getPunchContext = async (req, res) => {
       allowedModes = [ATTENDANCE_MODES.REGULAR];
     }
 
-    const tolerance = await getLateToleranceDateTime(today);
+    const { startTime, toleranceTime } = await getWorkScheduleTimes(today);
     const lateInfo = offDay || approvedModeRequest || isSundayOpenForEmployee(req.employeeId, today)
       ? { isLate: false, lateMinutes: 0 }
-      : computeLateInfoFromClockIn(new Date(), today, tolerance);
+      : computeLateInfoFromClockIn(new Date(), today, toleranceTime, startTime);
+
+    const lateMinutes = lateInfo.isLate ? Math.max(0, Number(lateInfo.lateMinutes) || 0) : 0;
+    const hoursNeeded = lateMinutes > 0 ? Math.round((lateMinutes / 60) * 100) / 100 : 0;
+    const overtimeUsable = await getOvertimeUsableBalance(req.employeeId, today);
+    const canCompensateOvertime = overtimeUsable >= hoursNeeded && hoursNeeded > 0;
 
     return res.json({
       date: today,
@@ -397,7 +403,11 @@ export const getPunchContext = async (req, res) => {
         ? 'Hari ini libur. Ajukan WOD dulu di tab WOD; setelah disetujui baru bisa absen.'
         : (offDay ? OFF_DAY_MESSAGE : null),
       is_late: lateInfo.isLate,
-      late_tolerance_iso: tolerance.toISOString(),
+      late_minutes: lateMinutes,
+      hours_needed: hoursNeeded,
+      overtime_usable_hours: overtimeUsable,
+      can_compensate_overtime: canCompensateOvertime,
+      late_tolerance_iso: toleranceTime.toISOString(),
     });
   } catch (error) {
     console.error('[attendance] getPunchContext', error);
@@ -625,6 +635,47 @@ export const checkInAttendance = async (req, res) => {
          WHERE id = ? AND employee_id = ?`,
         [attendanceId, modeRequestId, employeeId]
       );
+    }
+
+    if (lateFields.lateMinutes && Number(lateFields.lateMinutes) > 0) {
+      const lateM = Number(lateFields.lateMinutes);
+      const hoursNeeded = Math.round((lateM / 60) * 100) / 100;
+      const rawDeduct = req.body?.deduct_overtime;
+      const deductOvertime = rawDeduct === true || rawDeduct === 'true' || rawDeduct === '1';
+
+      const usableOvertime = await getOvertimeUsableBalance(employeeId, today);
+      const hasEnoughOvertime = usableOvertime >= hoursNeeded && hoursNeeded > 0;
+
+      if (deductOvertime && hasEnoughOvertime) {
+        await appendOvertimeLedger({
+          employeeId,
+          attendanceId,
+          mutationType: 'used',
+          hours: hoursNeeded,
+          note: `Potong keterlambatan ${lateM}m (${hoursNeeded}j) tgl ${today}`,
+        });
+
+        await aloraMobilePool.query(
+          `UPDATE tr_worker_attendance
+           SET is_late_waived = 1,
+               late_compensation_type = 'overtime',
+               late_compensation_hours = ?,
+               late_waived_at = NOW(),
+               updated_at = NOW()
+           WHERE id = ?`,
+          [hoursNeeded, attendanceId]
+        );
+      } else if (!hasEnoughOvertime) {
+        await aloraMobilePool.query(
+          `UPDATE tr_worker_attendance
+           SET is_late_waived = 0,
+               late_compensation_type = 'pending_overtime',
+               late_compensation_hours = ?,
+               updated_at = NOW()
+           WHERE id = ?`,
+          [hoursNeeded, attendanceId]
+        );
+      }
     }
 
     const [[inserted]] = await aloraMobilePool.query(

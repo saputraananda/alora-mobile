@@ -21,6 +21,7 @@ const Approvals = lazy(() => import('../features/approvals/pages/Approvals.jsx')
 const SlipGaji = lazy(() => import('../features/slip-gaji/pages/SlipGaji.jsx'));
 const Ringkasan = lazy(() => import('../features/ringkasan/pages/Ringkasan.jsx'));
 const Tim = lazy(() => import('../features/tim/pages/Tim.jsx'));
+const SkillMatrix = lazy(() => import('../features/skill-matrix/pages/SkillMatrix.jsx'));
 
 function readSplashVisible() {
   try {
@@ -150,6 +151,14 @@ function App() {
                 element={(
                   <ProtectedRoute user={user} showSplash={showSplash}>
                     <Tim />
+                  </ProtectedRoute>
+                )}
+              />
+              <Route
+                path="/skill-matrix"
+                element={(
+                  <ProtectedRoute user={user} showSplash={showSplash}>
+                    <SkillMatrix />
                   </ProtectedRoute>
                 )}
               />

@@ -79,27 +79,44 @@ function timeToParts(timeVal) {
   return { h: Number(h), m: Number(m) };
 }
 
-export async function getLateToleranceDateTime(dateStr) {
+export async function getWorkScheduleTimes(dateStr) {
   const { schedule } = await getWorkScheduleForDate(dateStr);
-  const tol = schedule?.late_tolerance_time || '08:30:00';
-  const { h, m } = timeToParts(tol);
   const pad = (n) => String(n).padStart(2, '0');
-  return new Date(`${dateStr}T${pad(h)}:${pad(m)}:00+07:00`);
+
+  const startVal = schedule?.start_time || '08:00:00';
+  const { h: sh, m: sm } = timeToParts(startVal);
+  const startTime = new Date(`${dateStr}T${pad(sh)}:${pad(sm)}:00+07:00`);
+
+  const tolVal = schedule?.late_tolerance_time || '08:30:00';
+  const { h: th, m: tm } = timeToParts(tolVal);
+  const toleranceTime = new Date(`${dateStr}T${pad(th)}:${pad(tm)}:00+07:00`);
+
+  return { startTime, toleranceTime };
 }
 
-export function computeLateInfoFromClockIn(clockInDate, dateStr, toleranceDate) {
+export async function getLateToleranceDateTime(dateStr) {
+  const { toleranceTime } = await getWorkScheduleTimes(dateStr);
+  return toleranceTime;
+}
+
+export function computeLateInfoFromClockIn(clockInDate, dateStr, toleranceDate, startTimeDate) {
   if (!clockInDate || Number.isNaN(clockInDate.getTime())) return { isLate: false, lateMinutes: 0 };
   const tol = toleranceDate || new Date(`${dateStr}T08:30:00+07:00`);
+  const start = startTimeDate || new Date(`${dateStr}T08:00:00+07:00`);
+
   const lateStartMs = tol.getTime() + LATE_GRACE_MS;
-  const diffMs = clockInDate.getTime() - lateStartMs;
-  if (diffMs < 0) return { isLate: false, lateMinutes: 0 };
-  return { isLate: true, lateMinutes: Math.floor(diffMs / 60000) };
+  const diffFromTolMs = clockInDate.getTime() - lateStartMs;
+  if (diffFromTolMs < 0) return { isLate: false, lateMinutes: 0 };
+
+  // Melewati batas toleransi: durasi keterlambatan dihitung dari jam masuk kerja (08:00)
+  const diffFromStartMs = clockInDate.getTime() - start.getTime();
+  return { isLate: true, lateMinutes: Math.max(1, Math.floor(diffFromStartMs / 60000)) };
 }
 
 export async function computeLateInfo(clockIn, dateStr) {
-  const tolerance = await getLateToleranceDateTime(dateStr);
+  const { startTime, toleranceTime } = await getWorkScheduleTimes(dateStr);
   const clockDate = clockIn instanceof Date ? clockIn : new Date(clockIn);
-  return computeLateInfoFromClockIn(clockDate, dateStr, tolerance);
+  return computeLateInfoFromClockIn(clockDate, dateStr, toleranceTime, startTime);
 }
 
 export function buildPeriodRange(month, year) {
