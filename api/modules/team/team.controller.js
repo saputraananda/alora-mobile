@@ -55,10 +55,10 @@ export const getTeamSummary = async (req, res) => {
 
     // 1. Validasi akses SPV / Approver
     const approverCtx = await getApproverContext(spvEmployeeId);
-    if (!approverCtx?.isSpv && !approverCtx?.canAccess) {
+    if (!approverCtx?.isSpv) {
       return res.status(403).json({
         success: false,
-        message: 'Akses khusus Supervisor atau Leader tim',
+        message: 'Akses khusus Supervisor',
       });
     }
 

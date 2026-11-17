@@ -30,7 +30,7 @@ export default function BottomNavbar() {
     })
       .then((res) => {
         if (cancelled) return;
-        const canSpv = Boolean(res.data?.is_spv || res.data?.can_access);
+        const canSpv = Boolean(res.data?.is_spv);
         setIsSpvUser(canSpv);
         try {
           sessionStorage.setItem('alora_is_spv', canSpv ? '1' : '0');
