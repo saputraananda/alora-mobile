@@ -46,7 +46,7 @@ export const getAccess = async (req, res) => {
   try {
     const outletIds = await getLoOutletIds(req.employeeId);
     const [outlets] = outletIds.length
-      ? await mainPool.query('SELECT id, name FROM mst_outlet WHERE id IN (?) ORDER BY name', [outletIds])
+      ? await myWaschenPool.query('SELECT id, name FROM mst_outlet WHERE id IN (?) ORDER BY name', [outletIds])
       : [[]];
     res.json({ success: true, data: { is_lo: outletIds.length > 0, outlets } });
   } catch (err) {

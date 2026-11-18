@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Main Waschen database pool (contains users, mst_employee, mst_position, mst_department, mst_outlet)
+// Main Waschen database pool (contains users, mst_employee, mst_position, mst_department)
 export const mainPool = mysql.createPool({
   host: process.env.DB_HOST,
   port: parseInt(process.env.DB_PORT),
@@ -41,7 +41,7 @@ export const academyPool = mysql.createPool({
   queueLimit: 0
 });
 
-// my_waschen database pool (mst_role, sumber cabang karyawan untuk LO)
+// my_waschen database pool (mst_role dan mst_outlet, sumber cabang karyawan untuk LO)
 export const myWaschenPool = mysql.createPool({
   host: process.env.DB_HOST_MY_WASCHEN,
   port: parseInt(process.env.DB_PORT_MY_WASCHEN),
