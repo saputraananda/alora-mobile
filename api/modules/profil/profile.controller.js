@@ -1,4 +1,5 @@
 import { mainPool } from '../../db/pool.js';
+import { isValidPin } from './pinRules.js';
 
 /**
  * Get Detailed Employee Profile from MySQL mainPool
@@ -241,6 +242,43 @@ export const getEducationLevels = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/** PIN milik karyawan yang login (identitas dari token). */
+export const getPin = async (req, res) => {
+  try {
+    const [rows] = await mainPool.query('SELECT pin FROM mst_employee_pin WHERE employee_id = ?', [req.employeeId]);
+    return res.status(200).json({ success: true, data: { pin: rows[0]?.pin ?? null } });
+  } catch (error) {
+    console.error('[profile] getPin error:', error);
+    return res.status(500).json({ success: false, message: 'Gagal mengambil PIN' });
+  }
+};
+
+/**
+ * Ubah PIN sendiri. Keunikan dijaga constraint UNIQUE; sengaja tanpa ON DUPLICATE KEY UPDATE
+ * karena PIN yang bentrok dengan karyawan lain akan mengubah baris karyawan itu, bukan memberi error.
+ */
+export const setPin = async (req, res) => {
+  const { pin } = req.body;
+  if (!isValidPin(pin)) {
+    return res.status(400).json({ success: false, message: 'PIN harus 4 digit angka' });
+  }
+  try {
+    const [own] = await mainPool.query('SELECT employee_id FROM mst_employee_pin WHERE employee_id = ?', [req.employeeId]);
+    if (own.length) {
+      await mainPool.query('UPDATE mst_employee_pin SET pin = ? WHERE employee_id = ?', [pin, req.employeeId]);
+    } else {
+      await mainPool.query('INSERT INTO mst_employee_pin (employee_id, pin) VALUES (?, ?)', [req.employeeId, pin]);
+    }
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ success: false, code: 'PIN_TAKEN', message: 'PIN sudah dipakai' });
+    }
+    console.error('[profile] setPin error:', error);
+    return res.status(500).json({ success: false, message: 'Gagal menyimpan PIN' });
   }
 };
 

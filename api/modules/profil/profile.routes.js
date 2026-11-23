@@ -4,8 +4,11 @@ import {
   updateProfile, 
   getBanks, 
   getEducationLevels, 
-  uploadDoc 
+  uploadDoc,
+  getPin,
+  setPin
 } from './profile.controller.js';
+import { authenticate } from '../../shared/middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -15,5 +18,7 @@ router.put('/update-profile', updateProfile);
 router.get('/banks', getBanks);
 router.get('/education-levels', getEducationLevels);
 router.post('/upload-doc/:docKey', uploadDoc);
+router.get('/pin', authenticate, getPin);
+router.put('/pin', authenticate, setPin);
 
 export default router;

@@ -241,6 +241,47 @@ function DocPreviewModal({ open, onClose, url, label }) {
     );
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   Modal: PIN sudah dipakai karyawan lain
+══════════════════════════════════════════════════════════════════ */
+function PinTakenModal({ open, onClose }) {
+    useEffect(() => {
+        if (!open) return;
+        const onKey = e => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [open, onClose]);
+
+    if (!open) return null;
+
+    return (
+        <div
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-navy-950/80 backdrop-blur-sm p-4 animate-fade-in"
+            onClick={onClose}
+        >
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="pin-taken-title"
+                className="w-full max-w-[340px] bg-white rounded-[26px] p-5 shadow-2xl border border-slate-100"
+                onClick={e => e.stopPropagation()}
+            >
+                <div id="pin-taken-title" className="text-[15px] font-black text-navy-950">PIN sudah dipakai</div>
+                <p className="text-[12.5px] text-slate-500 font-medium mt-1.5 leading-relaxed">
+                    PIN ini sudah dipakai karyawan lain. Pilih PIN yang berbeda.
+                </p>
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className="mt-4 w-full h-[44px] rounded-[14px] bg-navy-950 text-white text-[12.5px] font-black transition hover:bg-navy-900 active:scale-[.97]"
+                >
+                    Mengerti
+                </button>
+            </div>
+        </div>
+    );
+}
+
 /* ── Section wrapper ── */
 function Section({ title, children }) {
     return (
@@ -345,6 +386,14 @@ export default function EditProfile() {
     const [preview, setPreview] = useState(null); // { url, label }
     const [imgErr, setImgErr] = useState(false);
     const profileFileRef = useRef(null);
+    const [pin, setPin] = useState('');
+    const [showPin, setShowPin] = useState(false);
+    const [pinSaving, setPinSaving] = useState(false);
+    const [pinTakenOpen, setPinTakenOpen] = useState(false);
+
+    useEffect(() => {
+        api.get('/employee/pin').then(r => setPin(r.data.data?.pin || '')).catch(() => { });
+    }, []);
 
     useEffect(() => {
         api.get('/employee/banks').then(r => setBanks(r.data.data || [])).catch(() => { });
@@ -427,6 +476,18 @@ export default function EditProfile() {
             showToast(e.response?.data?.message || 'Profil berhasil disimpan ke database mainPool.', true);
         }
         setSaving(false);
+    };
+
+    const handleSavePin = async () => {
+        setPinSaving(true);
+        try {
+            await api.put('/employee/pin', { pin });
+            showToast('PIN berhasil disimpan.');
+        } catch (e) {
+            if (e.response?.data?.code === 'PIN_TAKEN') setPinTakenOpen(true);
+            else showToast(e.response?.data?.message || 'PIN gagal disimpan.', false);
+        }
+        setPinSaving(false);
     };
 
     const handleUpload = async (docKey, file) => {
@@ -570,6 +631,45 @@ export default function EditProfile() {
                     <FieldRow label="No. Rekening" name="bank_account_number" value={form.bank_account_number} onChange={handleChange} placeholder="Nomor rekening" />
                 </Section>
 
+                {/* PIN */}
+                <Section title="PIN">
+                    <div className="px-5 py-2.5">
+                        <label htmlFor="edit-profile-pin" className="block text-[10.5px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
+                            PIN (4 digit)
+                        </label>
+                        <div className="flex items-center gap-2">
+                            <input
+                                id="edit-profile-pin"
+                                type={showPin ? 'text' : 'password'}
+                                inputMode="numeric"
+                                autoComplete="off"
+                                maxLength={4}
+                                value={pin}
+                                onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                placeholder="4 digit angka"
+                                className="flex-1 min-w-0 text-[13px] font-bold text-navy-950 bg-slate-50 border border-slate-200 rounded-[12px] px-3 h-[40px] tracking-[0.3em] focus:outline-none focus:ring-2 focus:ring-navy-950/20 focus:border-navy-950 transition placeholder:text-slate-300 placeholder:tracking-normal"
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPin(v => !v)}
+                                aria-label={showPin ? 'Sembunyikan PIN' : 'Tampilkan PIN'}
+                                aria-pressed={showPin}
+                                className="h-[40px] w-[40px] rounded-[12px] border border-slate-200 bg-slate-50 text-slate-600 grid place-items-center flex-shrink-0 transition hover:bg-slate-100"
+                            >
+                                <IconEye />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSavePin}
+                                disabled={!/^\d{4}$/.test(pin) || pinSaving}
+                                className="h-[40px] px-4 rounded-[12px] bg-navy-950 text-white text-[11.5px] font-black flex-shrink-0 transition hover:bg-navy-900 disabled:opacity-50 active:scale-[.97]"
+                            >
+                                {pinSaving ? 'Menyimpan…' : 'Simpan PIN'}
+                            </button>
+                        </div>
+                    </div>
+                </Section>
+
                 {/* Dokumen */}
                 <Section title="Dokumen Pendukung">
                     {DOC_DEFS.map(d => (
@@ -618,6 +718,8 @@ export default function EditProfile() {
                 label={preview?.label}
                 onClose={() => setPreview(null)}
             />
+
+            <PinTakenModal open={pinTakenOpen} onClose={() => setPinTakenOpen(false)} />
         </div>
     );
 }
