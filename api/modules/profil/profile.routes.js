@@ -8,7 +8,7 @@ import {
   getPin,
   setPin
 } from './profile.controller.js';
-import { authenticate } from '../../shared/middleware/auth.middleware.js';
+import { authenticate, requireEmployee } from '../../shared/middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -18,7 +18,7 @@ router.put('/update-profile', updateProfile);
 router.get('/banks', getBanks);
 router.get('/education-levels', getEducationLevels);
 router.post('/upload-doc/:docKey', uploadDoc);
-router.get('/pin', authenticate, getPin);
-router.put('/pin', authenticate, setPin);
+router.get('/pin', authenticate, requireEmployee, getPin);
+router.put('/pin', authenticate, requireEmployee, setPin);
 
 export default router;
